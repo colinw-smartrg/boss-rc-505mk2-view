@@ -1,0 +1,144 @@
+// Usage: node test/browser.js
+// Needs puppeteer-core (npm install --no-save puppeteer-core) and Chrome.
+// Environment: RC0_DATA (the DATA folder), CHROME (the Chrome binary).
+//
+// The DevTools protocol cannot put files on a webkitdirectory input, so the
+// test removes that attribute and uploads the RC0 files directly. The same
+// change handler runs; only the browser folder dialog is not exercised.
+// The test also removes showDirectoryPicker, so export uses downloads.
+
+import fs from 'fs';
+import http from 'http';
+import os from 'os';
+import path from 'path';
+import puppeteer from 'puppeteer-core';
+import { rc0_parse } from '../lib/rc0_parse.js';
+
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const data_dir = process.env.RC0_DATA || '/sandbox/colinw/ROLAND/DATA';
+const chrome = process.env.CHROME || '/usr/bin/google-chrome';
+const out_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcview-'));
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+
+let failures = 0;
+function check(cond, message) {
+  console.log(cond ? 'ok  ' : 'FAIL', message);
+  if (!cond)
+    failures++;
+}
+
+const server = http.createServer((req, res) => {
+  const file = path.join(root, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+  if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const url = `http://127.0.0.1:${server.address().port}/index.html`;
+
+const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox'] });
+const page = await browser.newPage();
+await page.setViewport({ width: 1600, height: 1000 });
+const errors = [];
+page.on('pageerror', e => errors.push(e.message));
+page.on('console', m => {
+  if (m.type() === 'error')
+    errors.push(m.text());
+});
+page.on('requestfailed', r => errors.push(`request failed: ${r.url()}`));
+page.on('response', r => {
+  if (r.status() >= 400)
+    errors.push(`HTTP ${r.status()}: ${r.url()}`);
+});
+await page.evaluateOnNewDocument(() => {
+  delete window.showDirectoryPicker;
+});
+const cdp = await page.createCDPSession();
+await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: out_dir });
+await page.goto(url);
+
+const files = fs.readdirSync(data_dir).filter(n => /\.RC0$/i.test(n)).map(n => path.join(data_dir, n));
+await page.$eval('#picker', e => e.removeAttribute('webkitdirectory'));
+await (await page.$('#picker')).uploadFile(...files);
+await page.waitForSelector('.list-item');
+
+const src_a = rc0_parse(fs.readFileSync(path.join(data_dir, 'MEMORY001A.RC0'), 'latin1'));
+check(await page.$$eval('.list-item', e => e.length) === 100, 'list has 99 memories and the system entry');
+check(await page.$eval('.name-input', e => e.value) === 'DonkeyKong', 'memory 01 shows its name');
+check((await page.$eval('.view-head .sub', e => e.textContent)).startsWith('90.0 BPM'), 'memory 01 shows 90.0 BPM');
+check((await page.$eval('.track .track-sum', e => e.textContent)).startsWith('2 meas, 5.33 s'), 'track 1 summary decodes the phrase length');
+
+await page.$$eval('.track:first-child table.fields tr', rows => {
+  const row = rows.find(tr => tr.querySelector('td.name').firstChild.textContent === 'PLAY LEVEL');
+  const input = row.querySelector('input');
+  input.value = '150';
+  input.dispatchEvent(new Event('change'));
+});
+check(await page.$eval('.track .meter-fill', e => e.style.width) === '75%', 'level bar follows the edit');
+check((await page.$eval('#changes', e => e.textContent)).includes('TRACK1 D: 100 -> 150'), 'changes panel lists the edit');
+
+await page.$$eval('.fx-cell', cells => cells[0].click());
+check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join() === 'Slot A-A,LPF,FX sequence', 'FX slot A-A opens LPF with its sequence');
+await page.$$eval('.fx-detail table.fields tr', rows => {
+  const row = rows.find(tr => tr.querySelector('td.name')?.textContent === 'FX TYPE');
+  const sel = row.querySelector('select');
+  sel.value = '35';
+  sel.dispatchEvent(new Event('change'));
+});
+check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join() === 'Slot A-A,DELAY', 'a new FX TYPE shows the DELAY parameters');
+check((await page.$eval('.fx-cell', e => e.textContent)).includes('DELAY'), 'the grid cell shows the new FX type');
+
+// An FX parameter edit marks its grid cell.
+await page.$$eval('.fx-cell', cells => cells[3].click());
+await page.$$eval('.fx-detail .card:nth-child(2) table.fields tr', rows => {
+  const sel = rows.map(r => r.querySelector('select')).find(Boolean);
+  sel.value = sel.options[sel.selectedIndex === 0 ? 1 : 0].value;
+  sel.dispatchEvent(new Event('change'));
+});
+check(await page.$$eval('.fx-cell', e => e[3].classList.contains('changed')), 'an FX parameter edit marks its grid cell');
+
+// A tempo edit updates the header; an empty input is not stored.
+const set_master = async value => page.$$eval('.panels .card table.fields tr', (rows, v) => {
+  const row = rows.find(tr => tr.querySelector('td.name')?.textContent === 'TEMPO');
+  const input = row.querySelector('input');
+  input.value = v;
+  input.dispatchEvent(new Event('change'));
+  return input.classList.contains('invalid');
+}, value);
+await set_master('');
+check(!(await page.$eval('#changes', e => e.textContent)).includes('MASTER A'), 'an empty input is not stored');
+await set_master('95.5');
+check((await page.$eval('.view-head .sub', e => e.textContent)).startsWith('95.5 BPM'), 'header follows a tempo edit');
+check((await page.$eval('#changes', e => e.textContent)).includes('MASTER A: 900 -> 955'), 'tempo x10 is stored');
+
+await page.click('#export');
+const out_file = path.join(out_dir, 'MEMORY001B.RC0');
+for (let i = 0; i < 50 && !fs.existsSync(out_file); i++)
+  await new Promise(r => setTimeout(r, 100));
+check(fs.existsSync(out_file), 'export writes the lower-count copy MEMORY001B.RC0');
+if (fs.existsSync(out_file)) {
+  const src = fs.readFileSync(path.join(data_dir, 'MEMORY001A.RC0'));
+  const out = fs.readFileSync(out_file);
+  const doc = rc0_parse(out.toString('latin1'));
+  const field = (p, t) => doc.sections.find(s => s.path === p).fields.find(f => f.tag === t).value;
+  check(field('mem/MASTER', 'A') === '955', 'export holds the tempo edit');
+  check(field('mem/TRACK1', 'D') === '150' && field('ifx/AA', 'C') === '35', 'export holds both edits');
+  check(doc.count === src_a.count + 1, 'export count is the higher count + 1');
+  const src_lines = src.toString('latin1').split('\n');
+  const out_lines = out.toString('latin1').split('\n');
+  check(src_lines.length === out_lines.length && src_lines.filter((l, i) => l !== out_lines[i]).length === 5, 'export changes exactly 5 lines (4 values, count)');
+}
+
+await page.$$eval('.list-item', items => items.find(i => i.textContent.includes('System')).click());
+check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'MIDI,USB,INPUT,OUTPUT,MIXER,ROUTING', 'system view shows its panels');
+await page.screenshot({ path: path.join(out_dir, 'system.png') });
+
+check(!errors.length, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
+await browser.close();
+server.close();
+console.log(`output in ${out_dir}`);
+process.exit(failures ? 1 : 0);

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RC-505mk2 settings</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">RC-505mk2 settings</div>
+    <button id="open" class="primary">Open folder</button>
+    <input id="picker" type="file" webkitdirectory multiple hidden>
+    <div id="info" class="info"></div>
+    <button id="revert-all" disabled>Revert all</button>
+    <button id="export" class="primary" disabled>Export</button>
+  </header>
+  <div class="layout">
+    <nav id="list" class="list"></nav>
+    <main id="view" class="view"></main>
+    <aside class="side">
+      <h3>Changes</h3>
+      <div id="changes"></div>
+      <h3>Field status</h3>
+      <ul id="legend" class="legend"></ul>
+      <p class="muted">Hover a badge to see the source and the evidence for a field.</p>
+    </aside>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "boss-rcview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/run.js"
+  }
+}
