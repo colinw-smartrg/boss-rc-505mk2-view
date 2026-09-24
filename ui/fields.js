@@ -1,5 +1,5 @@
 import { h } from './dom.js';
-import { section_map_get, value_format, value_options, status_text } from '../lib/field_map.js';
+import { section_map_get, value_format, value_options, value_label, widget_kind, status_text } from '../lib/field_map.js';
 import { stats_range } from '../lib/rc0_stats.js';
 import { state, value_get, value_set, value_changed, value_original } from './state.js';
 
@@ -20,9 +20,10 @@ function range_get(entry, path, tag) {
   return seen ? { ...seen, seen: true } : null;
 }
 
-function widget_select(options, value, on_set) {
+function widget_select(entry, options, value, on_set) {
+  const label = o => options.length > 2 ? value_label(entry, o.value) : o.label;
   const sel = h('select', { onchange: () => on_set(sel.value) },
-    options.map(o => h('option', { value: String(o.value) }, o.label)));
+    options.map(o => h('option', { value: String(o.value) }, label(o))));
   if (!options.some(o => String(o.value) === value))
     sel.prepend(h('option', { value }, `${value} (outside the known range)`));
   sel.value = value;
@@ -75,19 +76,51 @@ function widget_number(entry, range, value, on_set) {
   return input;
 }
 
+function widget_toggle(value, on_set) {
+  const on = value === '1';
+  return h('button', {
+    class: `toggle${on ? ' on' : ''}`,
+    onclick: () => on_set(on ? 0 : 1),
+  }, on ? 'ON' : 'OFF');
+}
+
+function widget_slider(entry, value, on_set) {
+  const input = h('input', { type: 'range', min: entry.min, max: entry.max, step: 1, value });
+  const shown = h('span', { class: 'slider-value' }, value_label(entry, value));
+  input.addEventListener('input', () => {
+    shown.textContent = value_label(entry, input.value);
+  });
+  input.addEventListener('change', () => on_set(Number(input.value)));
+  return h('span', { class: 'slider' }, input, shown);
+}
+
+function in_range(entry, value) {
+  const n = Number(value);
+  return value !== '' && Number.isInteger(n) && n >= entry.min && n <= entry.max;
+}
+
 function widget_build(entry, range, value, on_set) {
-  const options = value_options(entry);
+  const kind = widget_kind(entry);
+  // A stored value outside the known range gets a plain widget that can
+  // show it; a slider or a toggle would change it on the first touch.
+  if ((kind === 'slider' || kind === 'toggle') && !in_range(entry, value))
+    return widget_number(entry, range, value, on_set);
+  if (kind === 'toggle')
+    return widget_toggle(value, on_set);
+  if (kind === 'slider')
+    return widget_slider(entry, value, on_set);
+  const options = kind === 'select' ? value_options(entry) : null;
   if (options)
-    return widget_select(options, value, on_set);
-  if (entry?.display?.bits)
+    return widget_select(entry, options, value, on_set);
+  if (kind === 'bits')
     return widget_bits(entry.display.bits, value, on_set);
   return widget_number(entry, range, value, on_set);
 }
 
-// A select shows the decoded label itself; other widgets need the decoded
-// value next to them.
+// Selects, toggles, sliders and bit boxes show the decoded value
+// themselves; a number input needs it next to it.
 function label_in_widget(entry) {
-  return Boolean(value_options(entry) || entry?.display?.bits);
+  return widget_kind(entry) !== 'number';
 }
 
 export function field_row(pair, path, field, entry, opts = {}) {
@@ -112,7 +145,7 @@ export function field_row(pair, path, field, entry, opts = {}) {
   }
 
   const widget_cell = h('td', { class: 'widget' }, widget_build(entry, range, value, on_set));
-  const name = entry?.name || '?';
+  const name = (entry?.name && opts.name ? opts.name(entry.name) : entry?.name) || '?';
   if (opts.compact) {
     row.append(
       h('td', { class: 'name', title: `Tag ${field.tag}` }, name, h('div', { class: 'sub-value' }, shown)),
@@ -136,8 +169,9 @@ export function section_table(pair, path, opts = {}) {
     return h('p', { class: 'missing' }, `No section ${path} in ${pair.current.name}.`);
   const map = section_map_get(path);
   const row_of = f => field_row(pair, path, f, map.fields.get(f.tag), opts);
-  const more = opts.more ? section.fields.filter(f => opts.more(f, map.fields.get(f.tag))) : [];
-  const main = section.fields.filter(f => !more.includes(f));
+  const fields = opts.tags ? section.fields.filter(f => opts.tags.includes(f.tag)) : section.fields;
+  const more = opts.more ? fields.filter(f => opts.more(f, map.fields.get(f.tag))) : [];
+  const main = fields.filter(f => !more.includes(f));
   const table_class = `fields${opts.compact ? ' compact' : ''}`;
   return h('div', { class: 'section' },
     opts.title === false ? null : h('h4', {}, opts.title || section.name),

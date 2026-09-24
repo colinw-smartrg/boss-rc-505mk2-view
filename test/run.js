@@ -4,7 +4,7 @@ import { text_from_bytes, text_to_bytes } from '../lib/bytes.js';
 import { rc0_parse } from '../lib/rc0_parse.js';
 import { rc0_edits_apply, rc0_count_format } from '../lib/rc0_write.js';
 import { rc0_file_load, pairs_build, pair_export } from '../lib/rc0_file.js';
-import { section_map_get, value_format, fx_type_name } from '../lib/field_map.js';
+import { section_map_get, value_format, fx_type_name, widget_kind, value_label } from '../lib/field_map.js';
 import { fx_params } from '../lib/field_map/fx.js';
 
 const data_dir = process.env.RC0_DATA || '/sandbox/colinw/ROLAND/DATA';
@@ -173,6 +173,24 @@ function test_field_map(files) {
   console.log('sections without a field map:', [...unmapped].sort().join(' '));
 }
 
+function test_widgets() {
+  const kind = (path, tag) => widget_kind(section_map_get(path).fields.get(tag));
+  const cases = [
+    ['mem/TRACK1', 'A', 'toggle'], ['mem/TRACK1', 'C', 'slider'], ['mem/TRACK1', 'D', 'slider'],
+    ['mem/TRACK1', 'F', 'select'], ['mem/TRACK1', 'I', 'select'], ['mem/TRACK1', 'J', 'number'],
+    ['mem/TRACK1', 'Q', 'bits'], ['mem/MASTER', 'A', 'number'], ['mem/RHYTHM', 'F', 'select'],
+    ['sys/ROUTING', 'R', 'toggle'], ['sys/MIXER', 'B', 'toggle'], ['sys/EQ_MIC1', 'D', 'slider'],
+    ['sys/ECTL_CTL1', 'B', 'select'], ['ifx/AA', 'C', 'select'], ['ifx/AA_DELAY', 'A', 'slider'],
+    ['ifx/AA_TREMOLO', 'A', 'slider'], ['ifx/AA_PHASER', 'H', 'select'],
+  ];
+  for (const [path, tag, want] of cases)
+    check(kind(path, tag) === want, `${path} ${tag}: widget ${kind(path, tag)}, expected ${want}`);
+  const track = section_map_get('mem/TRACK1').fields;
+  check(value_label(track.get('C'), '50') === 'CENTER (50)', 'PAN label shows the stored value');
+  check(value_label(track.get('D'), '100') === '100', 'a plain number shows once');
+  check(section_map_get('sys/ROUTING').fields.get('R').name === 'PHONES MONITOR', 'ROUTING R is PHONES MONITOR');
+}
+
 const raw = files_load();
 check(raw.length === 200, `expected 200 RC0 files without RHYTHM, got ${raw.length}`);
 test_round_trip(raw);
@@ -180,6 +198,7 @@ const files = raw.map(r => rc0_file_load(r.name, text_from_bytes(r.bytes)));
 test_single_edit(files);
 test_export(test_pairs(files));
 test_field_map(files);
+test_widgets();
 
 console.log(`${checks - failures}/${checks} checks passed`);
 process.exit(failures ? 1 : 0);

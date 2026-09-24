@@ -1,7 +1,14 @@
 import { h } from './dom.js';
 import { section_table, section_details } from './fields.js';
 
-const open_sections = ['sys/MIDI', 'sys/USB', 'sys/INPUT', 'sys/OUTPUT', 'sys/MIXER', 'sys/ROUTING'];
+const open_sections = ['sys/MIDI', 'sys/USB', 'sys/INPUT', 'sys/OUTPUT', 'sys/MIXER'];
+
+// ROUTING in two parts, as on the unit (p. 11-12): where the tracks go,
+// and where the inputs and the rhythm go.
+const routing_parts = [
+  { title: 'ROUTING OUTPUT', tags: [...'ABCDEFG'], name: n => n.replace(/^TRACK -> /, '') },
+  { title: 'ROUTING INPUT', tags: [...'HIJKLMNOPQRS'], name: n => n.replace(/^INPUT -> /, '') },
+];
 
 const group_defs = [
   ['Panel and pedal controls', /^sys\/(ICTL|ECTL)/],
@@ -20,7 +27,10 @@ export function system_view(pair) {
         h('div', { class: 'title' }, 'System settings'),
         h('div', { class: 'sub' }, `Current copy: ${copies[0]}. Other copy: ${copies[1] || 'none'}.`))),
     h('section', { class: 'panels' },
-      open_sections.filter(p => paths.includes(p)).map(p => h('div', { class: 'card' }, section_table(pair, p)))),
+      open_sections.filter(p => paths.includes(p)).map(p => h('div', { class: 'card' }, section_table(pair, p))),
+      paths.includes('sys/ROUTING')
+        ? routing_parts.map(r => h('div', { class: 'card' }, section_table(pair, 'sys/ROUTING', r)))
+        : null),
     h('section', { class: 'groups' },
       group_defs.map(([title, re]) => {
         const members = paths.filter(p => re.test(p));

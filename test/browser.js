@@ -79,8 +79,20 @@ await page.$$eval('.track:first-child table.fields tr', rows => {
   input.dispatchEvent(new Event('change'));
 });
 check(await page.$eval('.track .meter-fill', e => e.style.width) === '75%', 'level bar follows the edit');
+const row_of = (name) => `[...document.querySelectorAll('.track:first-child table.fields tr')].find(tr => tr.querySelector('td.name').firstChild.textContent === '${name}')`;
+check(await page.evaluate(`${row_of('PAN')}.querySelector('.slider-value').textContent`) === 'CENTER (50)', 'PAN is a slider with CENTER (50) on the side');
+check(await page.evaluate(`${row_of('PLAY LEVEL')}.querySelector('.slider-value').textContent`) === '150', 'PLAY LEVEL slider shows 150');
+check(await page.evaluate(`${row_of('STOP MODE')}.querySelector('select').selectedOptions[0].textContent`) === 'LOOP (2)', 'STOP MODE option shows LOOP (2)');
+check(await page.evaluate(`${row_of('PLAY MODE')}.querySelector('select').selectedOptions[0].textContent`) === 'MULTI', 'a 2-option select shows no value');
+check(await page.evaluate(`${row_of('REVERSE')}.querySelector('button.toggle').textContent`) === 'OFF', 'REVERSE is an OFF toggle');
+await page.evaluate(`${row_of('REVERSE')}.querySelector('button.toggle').click()`);
+check(await page.evaluate(`(() => { const b = ${row_of('REVERSE')}.querySelector('button.toggle'); return b.textContent + ' ' + b.classList.contains('on') + ' ' + getComputedStyle(b).backgroundColor; })()`) === 'ON true rgb(63, 185, 107)', 'the toggle turns ON with a green background');
+await page.evaluate(`${row_of('REVERSE')}.querySelector('button.toggle').click()`);
+check(await page.evaluate(`getComputedStyle(${row_of('REVERSE')}.querySelector('button.toggle')).backgroundColor`) === 'rgb(0, 0, 0)', 'OFF has a black background');
+check(!(await page.$eval('#changes', e => e.textContent)).includes('TRACK1 A'), 'a toggle back to the stored value leaves no change');
 check((await page.$eval('#changes', e => e.textContent)).includes('TRACK1 D: 100 -> 150'), 'changes panel lists the edit');
 
+await page.screenshot({ path: path.join(out_dir, 'memory.png') });
 await page.$$eval('.fx-cell', cells => cells[0].click());
 check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join() === 'Slot A-A,LPF,FX sequence', 'FX slot A-A opens LPF with its sequence');
 await page.$$eval('.fx-detail table.fields tr', rows => {
@@ -95,9 +107,9 @@ check((await page.$eval('.fx-cell', e => e.textContent)).includes('DELAY'), 'the
 // An FX parameter edit marks its grid cell.
 await page.$$eval('.fx-cell', cells => cells[3].click());
 await page.$$eval('.fx-detail .card:nth-child(2) table.fields tr', rows => {
-  const sel = rows.map(r => r.querySelector('select')).find(Boolean);
-  sel.value = sel.options[sel.selectedIndex === 0 ? 1 : 0].value;
-  sel.dispatchEvent(new Event('change'));
+  const slider = rows.map(r => r.querySelector('input[type=range]')).find(Boolean);
+  slider.value = String(Number(slider.value) === Number(slider.min) ? Number(slider.min) + 1 : slider.min);
+  slider.dispatchEvent(new Event('change'));
 });
 check(await page.$$eval('.fx-cell', e => e[3].classList.contains('changed')), 'an FX parameter edit marks its grid cell');
 
@@ -134,8 +146,11 @@ if (fs.existsSync(out_file)) {
 }
 
 await page.$$eval('.list-item', items => items.find(i => i.textContent.includes('System')).click());
-check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'MIDI,USB,INPUT,OUTPUT,MIXER,ROUTING', 'system view shows its panels');
-await page.screenshot({ path: path.join(out_dir, 'system.png') });
+check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'MIDI,USB,INPUT,OUTPUT,MIXER,ROUTING OUTPUT,ROUTING INPUT', 'system view shows its panels, with ROUTING in two parts');
+const routing = await page.$$eval('.system .card', cards => cards.slice(-2).map(c => [...c.querySelectorAll('td.name')].map(td => td.textContent).join(',')));
+check(routing[0] === 'MAIN-L,MAIN-R,SUB1-L,SUB1-R,SUB2-L,SUB2-R,PHONES', 'ROUTING OUTPUT lists the track outputs');
+check(routing[1] === 'MAIN-L,MAIN-R,SUB1-L,SUB1-R,SUB2-L,SUB2-R,PHONES,PHONES RHYTHM,RHYTHM OUT,PHONES OUT SW,PHONES MONITOR,INPUT THRU', 'ROUTING INPUT lists the input outputs and the rest');
+await page.screenshot({ path: path.join(out_dir, 'system.png'), fullPage: true });
 
 check(!errors.length, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
 await browser.close();
