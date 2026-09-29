@@ -80,9 +80,12 @@ await page.$$eval('.track:first-child table.fields tr', rows => {
 });
 check(await page.$eval('.track .meter-fill', e => e.style.width) === '75%', 'level bar follows the edit');
 const row_of = (name) => `[...document.querySelectorAll('.track:first-child table.fields tr')].find(tr => tr.querySelector('td.name').firstChild.textContent === '${name}')`;
-check(await page.evaluate(`${row_of('PAN')}.querySelector('.slider-value').textContent`) === 'CENTER (50)', 'PAN is a slider with CENTER (50) on the side');
+check(await page.evaluate(`[...${row_of('PAN')}.querySelectorAll('.slider-value span')].map(s => s.textContent).join('|')`) === 'CENTER|(50)', 'PAN slider shows CENTER and (50) on the side');
 check(await page.evaluate(`${row_of('PLAY LEVEL')}.querySelector('.slider-value').textContent`) === '150', 'PLAY LEVEL slider shows 150');
-check(await page.evaluate(`${row_of('STOP MODE')}.querySelector('select').selectedOptions[0].textContent`) === 'LOOP (2)', 'STOP MODE option shows LOOP (2)');
+check(await page.evaluate(`${row_of('STOP MODE')}.querySelector('select').selectedOptions[0].textContent`) === 'LOOP' + '\u00a0'.repeat(6) + '(2)', 'STOP MODE option pads LOOP so that (2) is right-aligned');
+check(await page.evaluate(`(() => { const r = ${row_of('STOP MODE')}; const a = r.querySelector('select').getBoundingClientRect(); const b = r.querySelector('td.name').getBoundingClientRect(); return a.top < b.bottom && b.top < a.bottom && a.left > b.left; })()`), 'track controls share the line of their name');
+check(await page.evaluate(`${row_of('PAN')}.querySelector('input').getBoundingClientRect().top > ${row_of('PAN')}.querySelector('td.name').getBoundingClientRect().bottom - 1`), 'PAN slider is on its own line');
+check(await page.evaluate(`[...${row_of('INPUT')}.querySelectorAll('.bit')].map(b => b.textContent).join()`) === 'MIC1,MIC2,INST1-L,INST1-R,INST2,RHYTHM', 'track INPUT merges INST2 (STEREO LINK INST2 is ON in the system file)');
 check(await page.evaluate(`${row_of('PLAY MODE')}.querySelector('select').selectedOptions[0].textContent`) === 'MULTI', 'a 2-option select shows no value');
 check(await page.evaluate(`${row_of('REVERSE')}.querySelector('button.toggle').textContent`) === 'OFF', 'REVERSE is an OFF toggle');
 await page.evaluate(`${row_of('REVERSE')}.querySelector('button.toggle').click()`);
@@ -146,11 +149,49 @@ if (fs.existsSync(out_file)) {
 }
 
 await page.$$eval('.list-item', items => items.find(i => i.textContent.includes('System')).click());
-check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'MIDI,USB,INPUT,OUTPUT,MIXER,ROUTING OUTPUT,ROUTING INPUT', 'system view shows its panels, with ROUTING in two parts');
-const routing = await page.$$eval('.system .card', cards => cards.slice(-2).map(c => [...c.querySelectorAll('td.name')].map(td => td.textContent).join(',')));
-check(routing[0] === 'MAIN-L,MAIN-R,SUB1-L,SUB1-R,SUB2-L,SUB2-R,PHONES', 'ROUTING OUTPUT lists the track outputs');
-check(routing[1] === 'MAIN-L,MAIN-R,SUB1-L,SUB1-R,SUB2-L,SUB2-R,PHONES,PHONES RHYTHM,RHYTHM OUT,PHONES OUT SW,PHONES MONITOR,INPUT THRU', 'ROUTING INPUT lists the input outputs and the rest');
+check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'INPUT,MIXER INPUT,ROUTING INPUT,EQ MIC,EQ INST1,EQ INST2,OUTPUT,MASTER FX,MIXER OUTPUT,ROUTING OUTPUT,EQ MAIN,EQ SUB1,EQ SUB2,USB,MIDI', 'system panels are grouped by input and output');
+const card_names = title => page.evaluate(t => [...document.querySelectorAll('.system .card')].find(c => c.querySelector('h4').textContent === t).querySelectorAll('tbody td.name'), title)
+  .then(() => page.$$eval('.system .card', (cards, t) => [...cards.find(c => c.querySelector('h4').textContent === t).querySelectorAll('tbody td.name')].map(td => td.textContent).join(','), title));
+check(await card_names('ROUTING OUTPUT') === 'MAIN,SUB1,SUB2,PHONES', 'ROUTING OUTPUT merges the linked MAIN, SUB1 and SUB2');
+check(await card_names('MIXER OUTPUT') === 'MAIN OUT,SUB1 OUT,SUB2 OUT,LOOP OUT,RHYTHM OUT,PHONES OUT,MASTER OUT', 'MIXER OUTPUT merges the linked outputs');
+check(await card_names('MIXER INPUT') === 'MIC1 IN,MIC1 MUTE,MIC2 IN,MIC2 MUTE,INST1-L IN,INST1-L MUTE,INST1-R IN,INST1-R MUTE,INST2 IN,INST2 MUTE', 'MIXER INPUT merges only INST2');
+check(await card_names('ROUTING INPUT') === 'MAIN,SUB1,SUB2,PHONES,PHONES RHYTHM,RHYTHM OUT,PHONES OUT SW,PHONES MONITOR,INPUT THRU', 'ROUTING INPUT lists the outputs and the rest');
+check(await card_names('MASTER FX') === 'COMP,REVERB,INSERT', 'MASTER FX names A, B and C');
+const eq_heads = t => page.$$eval('.system .card', (cards, t) => [...cards.find(c => c.querySelector('h4').textContent === t).querySelectorAll('thead th')].map(th => th.textContent).filter(Boolean).join(','), t);
+check(await eq_heads('EQ MAIN') === 'MAIN' && await eq_heads('EQ MIC') === 'MIC1,MIC2', 'EQ boxes show one column when linked, two when not');
 await page.screenshot({ path: path.join(out_dir, 'system.png'), fullPage: true });
+
+// Linked edits go to both sides: separate EQ sections, fields in one
+// section, and bits in one field. A revert restores both.
+const changes_text = () => page.$eval('#changes', e => e.textContent);
+const card_eval = (title, fn, arg) => page.$$eval('.system .card', (cards, [t, src, a]) => {
+  const c = cards.find(x => x.querySelector('h4').textContent === t);
+  return new Function('c', 'a', src)(c, a);
+}, [title, fn, arg]);
+await card_eval('EQ MAIN', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SW'); t.querySelector('button.toggle').click();`);
+let ch = await changes_text();
+check(ch.includes('EQ_MAINOUTL A: 0 -> 1') && ch.includes('EQ_MAINOUTR A: 0 -> 1'), 'linked EQ MAIN SW edit sets L and R');
+await card_eval('EQ MAIN', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SW'); t.querySelector('button.revert').click();`);
+ch = await changes_text();
+check(!ch.includes('EQ_MAINOUT'), 'revert of the linked EQ edit restores L and R');
+await card_eval('MIXER OUTPUT', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SUB1 OUT'); const i = t.querySelector('input'); i.value = '120'; i.dispatchEvent(new Event('change'));`);
+ch = await changes_text();
+check(ch.includes('MIXER O: 100 -> 120') && ch.includes('MIXER P: 100 -> 120'), 'linked MIXER SUB1 OUT edit sets SUB1-L and SUB1-R');
+const inst2_before = await card_eval('ROUTING INPUT', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SUB1'); return [...t.querySelectorAll('.bit')].map(b => b.textContent).join();`);
+check(inst2_before === 'MIC1,MIC2,INST1-L,INST1-R,INST2,RHYTHM', 'ROUTING INPUT bits merge INST2');
+await card_eval('ROUTING INPUT', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SUB1'); const b = [...t.querySelectorAll('.bit')].find(x => x.textContent === 'INST2'); b.firstChild.click();`);
+ch = await changes_text();
+check(ch.includes('ROUTING J: 96 -> 112') && ch.includes('ROUTING K: 127 -> 112'), 'linked INST2 bit sets INST2-L and INST2-R (96 -> 112), and linked SUB1 copies the field to SUB1-R');
+await card_eval('ROUTING INPUT', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SUB1'); const b = [...t.querySelectorAll('.bit')].find(x => x.textContent === 'INST2'); b.firstChild.click();`);
+ch = await changes_text();
+check(!ch.includes('ROUTING J') && !ch.includes('ROUTING K'), 'unchecking the bit again restores the stored values of SUB1-L and SUB1-R');
+await page.$$eval('.system .card', cards => {
+  const out = cards.find(c => c.querySelector('h4').textContent === 'OUTPUT');
+  const row = [...out.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'STEREO LINK MAIN');
+  row.querySelector('button.toggle').click();
+});
+check(await card_names('ROUTING OUTPUT') === 'MAIN-L,MAIN-R,SUB1,SUB2,PHONES', 'STEREO LINK MAIN OFF shows MAIN-L and MAIN-R again');
+check(await eq_heads('EQ MAIN') === 'MAIN-L,MAIN-R', 'EQ MAIN shows L and R after the link is off');
 
 check(!errors.length, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
 await browser.close();

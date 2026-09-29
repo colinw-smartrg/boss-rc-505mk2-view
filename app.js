@@ -148,7 +148,7 @@ function view_render() {
     clear(el.view, h('p', { class: 'muted' }, 'Open the ROLAND folder of the unit (or a copy of it) to start.'));
     return;
   }
-  clear(el.view, pair.kind === 'system' ? system_view(pair) : memory_view(pair));
+  clear(el.view, pair.kind === 'system' ? system_view(pair, view_render) : memory_view(pair));
 }
 
 function render() {

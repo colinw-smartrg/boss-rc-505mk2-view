@@ -69,7 +69,7 @@ function track_card(pair, t) {
     head.replaceChildren(...track_head(pair, t).childNodes);
     card.classList.toggle('recorded', Number(value_get(pair, path, 'W')) === 1);
   };
-  card.append(section_table(pair, path, { title: false, compact: true, on_change, more: track_more }));
+  card.append(section_table(pair, path, { title: false, compact: true, wide: ['C', 'D'], on_change, more: track_more }));
   on_change();
   return card;
 }
