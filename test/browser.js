@@ -103,7 +103,28 @@ check(await page.$$eval('.fx .fx-bank', cols => cols.every(c => c.querySelectorA
 check(!(await page.$('.fx-banks')), 'the separate setup card is gone');
 await page.evaluate(() => { document.querySelector('.view').scrollTop = document.querySelector('.fx').offsetTop - 10; });
 await page.screenshot({ path: path.join(out_dir, 'fx.png') });
-await page.$$eval('.fx-cell', cells => cells[0].click());
+check(await page.$$eval('.assign-cell', e => e.length) === 16, 'the ASSIGN grid has 16 cells');
+check(await page.$eval('.assign-cell', e => e.textContent) === '1MIDI CC#21ON', 'ASSIGN1 shows ON and its SOURCE');
+check(await page.$$eval('.assign-cell', e => {
+  const x = e.map(c => Math.round(c.getBoundingClientRect().left));
+  const y = e.map(c => Math.round(c.getBoundingClientRect().top));
+  const col = i => x[i];
+  return [0, 1, 2, 3].every(i => col(i) === col(0)) && [12, 13, 14, 15].every(i => col(i) === col(12))
+    && col(12) > col(8) && col(8) > col(4) && col(4) > col(0) && y[1] > y[0] && y[4] === y[0];
+}), 'ASSIGN grid runs by column: 1-4 in the first column, 13-16 in the last');
+await page.$$eval('.assign-cell', e => e[5].click());
+const target_label = () => page.$eval('.assign-detail', c => [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'TARGET').querySelector('select').selectedOptions[0].textContent);
+check(await target_label() === '919 (outside the known range)', 'ASSIGN6 TARGET 919 shows as outside the list');
+await page.$$eval('.assign-cell', e => e[0].click());
+check((await target_label()).startsWith('TRK1 REC/PLY'), 'ASSIGN1 TARGET decodes as TRK1 REC/PLY');
+await page.$$eval('.assign-cell', e => e[6].click());
+await page.$eval('.assign-detail', c => [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'SW').querySelector('button.toggle').click());
+check(await page.$$eval('.assign-cell', e => e[6].classList.contains('on') && e[6].classList.contains('changed')), 'an ASSIGN edit updates its grid cell');
+await page.evaluate(() => { document.querySelector('.view').scrollTop = document.querySelector('.assign').offsetTop - 10; });
+await page.screenshot({ path: path.join(out_dir, 'assign.png') });
+await page.$eval('.assign-detail', c => [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'SW').querySelector('button.revert').click());
+await page.$$eval('.assign-cell', e => e[6].click());
+await page.$$eval('.fx-cell:not(.assign-cell)', cells => cells[0].click());
 check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join() === 'Slot A-A,LPF,FX sequence', 'FX slot A-A opens LPF with its sequence');
 check(await page.$eval('.fx-detail .card', c => [...c.querySelectorAll('td.name')].map(td => td.textContent).join()) === 'SW,SW MODE,FX TYPE,INSERT', 'the slot table names its 4 fields');
 await page.$eval('.fx-detail .card', c => {
@@ -127,7 +148,7 @@ check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join(
 check((await page.$eval('.fx-cell', e => e.textContent)).includes('DELAY'), 'the grid cell shows the new FX type');
 
 // An FX parameter edit marks its grid cell.
-await page.$$eval('.fx-cell', cells => cells[3].click());
+await page.$$eval('.fx-cell:not(.assign-cell)', cells => cells[3].click());
 await page.$$eval('.fx-detail .card:nth-child(2) table.fields tr', rows => {
   const slider = rows.map(r => r.querySelector('input[type=range]')).find(Boolean);
   slider.value = String(Number(slider.value) === Number(slider.min) ? Number(slider.min) + 1 : slider.min);

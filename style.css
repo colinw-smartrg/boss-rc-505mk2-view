@@ -183,3 +183,9 @@ table.fields.compact tr.wide td.widget { grid-row: 2; grid-column: 1 / -1; }
 .fx-setup { width: 220px; margin-bottom: 8px; }
 .fx-slots { display: flex; flex-direction: column; gap: 4px; }
 .fx-bank-setup { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
+
+.assign-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 8px; }
+.assign-detail { margin-top: 8px; max-width: 760px; }
+.assign { margin-bottom: 14px; }
+.assign h3 { margin: 6px 0 8px; }
+.assign-grid { grid-template-rows: repeat(4, auto); grid-auto-flow: column; }

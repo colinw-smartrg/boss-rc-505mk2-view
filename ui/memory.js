@@ -1,6 +1,7 @@
 import { h } from './dom.js';
 import { section_table, section_details } from './fields.js';
 import { fx_view } from './fx.js';
+import { assign_view } from './assign.js';
 import { value_get, value_set, value_changed } from './state.js';
 import { value_format, field_map_get, sample_rate } from '../lib/field_map.js';
 
@@ -76,7 +77,6 @@ function track_card(pair, t) {
 
 const group_defs = [
   ['Panel and pedal controls', /^mem\/(ICTL|ECTL)/],
-  ['Assign', /^mem\/ASSIGN/],
   ['Input, output and mixer', /^mem\/(INPUT|OUTPUT|ROUTING|MIXER|MASTER_FX)$/],
   ['EQ', /^mem\/EQ_/],
   ['Other', /^mem\/(TRACK6|FIXED_VALUE)$/],
@@ -117,5 +117,6 @@ export function memory_view(pair) {
       h('div', { class: 'card' }, section_table(pair, 'mem/RHYTHM'))),
     fx_view(pair, 'ifx', 'Input FX'),
     fx_view(pair, 'tfx', 'Track FX'),
+    assign_view(pair),
     h('section', { class: 'groups' }, group_details(pair)));
 }

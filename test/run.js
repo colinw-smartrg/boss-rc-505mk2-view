@@ -158,7 +158,7 @@ function test_field_map(files) {
         check(entry, `${path}: FX tag ${tag} has no entry`);
       if (!entry || entry.min === undefined)
         continue;
-      const bad = [...values].filter(n => n < entry.min || n > entry.max);
+      const bad = [...values].filter(n => (n < entry.min || n > entry.max) && !entry.known_outside?.includes(n));
       check(!bad.length, `${path} ${tag} ${entry.name}: values ${bad.join(',')} outside ${entry.min}-${entry.max}`);
       for (const n of values)
         check(!/undefined|NaN/.test(value_format(entry, n)), `${path} ${tag}: bad format for ${n}`);
@@ -195,6 +195,10 @@ function test_widgets() {
   const insert_count = ctx => section_map_get(`${ctx}/AA`).fields.get('D').max + 1;
   check(insert_count('ifx') === 7 && insert_count('tfx') === 6, 'INSERT has 7 Input FX and 6 Track FX values');
   check(value_format(section_map_get('tfx/DD').fields.get('D'), '5') === 'TRACK5', 'Track FX INSERT 5 is TRACK5');
+  const target = section_map_get('mem/ASSIGN1').fields.get('H');
+  const decoded = [0, 11, 22, 33, 44, 55, 57, 69, 714].map(n => value_format(target, n)).join();
+  check(decoded === 'TRK1 REC/PLY,TRK2 REC/PLY,TRK3 REC/PLY,TRK4 REC/PLY,TRK5 REC/PLY,CUR.TRK REC/PLY,CUR.TRK STOP,ALL ST/STP,RHYTHM ST/STP', `ASSIGN TARGET decodes the sample values: ${decoded}`);
+  check(widget_kind(target) === 'select' && widget_kind(section_map_get('mem/ASSIGN1').fields.get('C')) === 'select', 'ASSIGN SOURCE and TARGET are drop-downs');
 }
 
 const raw = files_load();
