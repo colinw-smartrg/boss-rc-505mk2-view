@@ -96,8 +96,27 @@ check(!(await page.$eval('#changes', e => e.textContent)).includes('TRACK1 A'), 
 check((await page.$eval('#changes', e => e.textContent)).includes('TRACK1 D: 100 -> 150'), 'changes panel lists the edit');
 
 await page.screenshot({ path: path.join(out_dir, 'memory.png') });
+check(await page.$$eval('.fx', fx => fx.map(f => [...f.querySelectorAll('.fx-setup td.name')].map(td => td.firstChild.textContent).join()).join('|')) === 'BANK|BANK', 'BANK stands alone below each FX title');
+check(await page.$$eval('.fx', fx => fx.every(f => f.querySelector('h3').nextElementSibling.classList.contains('fx-setup'))), 'the BANK line follows the title directly');
+check(await page.$$eval('.fx .fx-bank', cols => cols.map(c => c.querySelector('.fx-bank-setup td.name:nth-child(1)') && [...c.querySelectorAll('.fx-bank-setup td.name')].map(td => td.firstChild.textContent).join()).join('|')) === Array(8).fill('MODE,SW,KNOB').join('|'), 'each bank column holds its own bank settings');
+check(await page.$$eval('.fx .fx-bank', cols => cols.every(c => c.querySelectorAll('.fx-slots .fx-cell').length === 4)), 'each bank column holds 4 slots');
+check(!(await page.$('.fx-banks')), 'the separate setup card is gone');
+await page.evaluate(() => { document.querySelector('.view').scrollTop = document.querySelector('.fx').offsetTop - 10; });
+await page.screenshot({ path: path.join(out_dir, 'fx.png') });
 await page.$$eval('.fx-cell', cells => cells[0].click());
 check((await page.$$eval('.fx-detail h4', e => e.map(x => x.textContent))).join() === 'Slot A-A,LPF,FX sequence', 'FX slot A-A opens LPF with its sequence');
+check(await page.$eval('.fx-detail .card', c => [...c.querySelectorAll('td.name')].map(td => td.textContent).join()) === 'SW,SW MODE,FX TYPE,INSERT', 'the slot table names its 4 fields');
+await page.$eval('.fx-detail .card', c => {
+  const row = [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'INSERT');
+  const sel = row.querySelector('select');
+  sel.value = '1';
+  sel.dispatchEvent(new Event('change'));
+});
+check((await page.$$eval('.fx-cell', e => e[0].textContent)).includes('INSERT MIC1'), 'the grid cell shows INSERT MIC1');
+await page.$eval('.fx-detail .card', c => {
+  const row = [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'INSERT');
+  row.querySelector('button.revert').click();
+});
 await page.$$eval('.fx-detail table.fields tr', rows => {
   const row = rows.find(tr => tr.querySelector('td.name')?.textContent === 'FX TYPE');
   const sel = row.querySelector('select');

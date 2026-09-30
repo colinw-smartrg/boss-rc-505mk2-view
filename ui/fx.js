@@ -50,13 +50,29 @@ function slot_detail(pair, ctx, slot, on_slot_change, on_any_change) {
 export function fx_view(pair, ctx, title) {
   const detail = h('div', {});
   let picked = null;
-  const grid = h('div', { class: 'fx-grid' });
+  const labels = new Map();
+  const cells = new Map();
+
+  // Each bank column holds its label, its bank settings and its 4 slots.
+  // Only the label state and the slots are built again after an edit.
+  const grid = h('div', { class: 'fx-grid' }, banks.map(b => {
+    const label = h('div', { class: 'fx-bank-label' }, `BANK ${b}`);
+    const slots = h('div', { class: 'fx-slots' });
+    labels.set(b, label);
+    cells.set(b, slots);
+    return h('div', { class: 'fx-bank' },
+      label,
+      h('div', { class: 'fx-bank-setup' },
+        section_table(pair, `${ctx}/${b}`, { title: false, compact: true, on_change: render_grid })),
+      slots);
+  }));
 
   function render_grid() {
     const active_bank = banks[Number(value_get(pair, `${ctx}/SETUP`, 'A'))] || 'A';
-    clear(grid, banks.map(b => h('div', { class: 'fx-bank' },
-      h('div', { class: `fx-bank-label${b === active_bank ? ' active-bank' : ''}` }, `BANK ${b}`),
-      banks.map(s => slot_cell(pair, ctx, b + s, active_bank, pick)))));
+    for (const b of banks) {
+      labels.get(b).classList.toggle('active-bank', b === active_bank);
+      clear(cells.get(b), banks.map(s => slot_cell(pair, ctx, b + s, active_bank, pick)));
+    }
     grid.querySelectorAll('.fx-cell').forEach(c => c.classList.toggle('picked', c.title.endsWith(`bank ${picked?.[0]}, FX ${picked?.[1]}`)));
   }
 
@@ -82,10 +98,8 @@ export function fx_view(pair, ctx, title) {
   render_grid();
   return h('section', { class: 'fx' },
     h('h3', {}, title),
-    h('div', { class: 'fx-top' },
-      grid,
-      h('div', { class: 'fx-banks card' },
-        section_table(pair, `${ctx}/SETUP`, { title: 'Setup', on_change: render_grid }),
-        banks.map(b => section_table(pair, `${ctx}/${b}`, { title: `Bank ${b}`, on_change: render_grid })))),
+    h('div', { class: 'fx-setup' },
+      section_table(pair, `${ctx}/SETUP`, { title: false, compact: true, on_change: render_grid })),
+    grid,
     detail);
 }

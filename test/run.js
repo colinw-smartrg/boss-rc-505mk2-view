@@ -182,6 +182,8 @@ function test_widgets() {
     ['sys/ROUTING', 'R', 'toggle'], ['sys/MIXER', 'B', 'toggle'], ['sys/EQ_MIC1', 'D', 'slider'],
     ['sys/ECTL_CTL1', 'B', 'select'], ['ifx/AA', 'C', 'select'], ['ifx/AA_DELAY', 'A', 'slider'],
     ['ifx/AA_TREMOLO', 'A', 'slider'], ['ifx/AA_PHASER', 'H', 'select'],
+    ['ifx/A', 'A', 'select'], ['ifx/A', 'B', 'toggle'], ['ifx/A', 'C', 'select'],
+    ['ifx/AA', 'B', 'select'], ['ifx/AA', 'D', 'select'], ['tfx/AA', 'D', 'select'],
   ];
   for (const [path, tag, want] of cases)
     check(kind(path, tag) === want, `${path} ${tag}: widget ${kind(path, tag)}, expected ${want}`);
@@ -189,6 +191,10 @@ function test_widgets() {
   check(value_label(track.get('C'), '50') === 'CENTER (50)', 'PAN label shows the stored value');
   check(value_label(track.get('D'), '100') === '100', 'a plain number shows once');
   check(section_map_get('sys/ROUTING').fields.get('R').name === 'PHONES MONITOR', 'ROUTING R is PHONES MONITOR');
+  check(section_map_get('ifx/A').fields.get('C').name === 'KNOB', 'bank C is KNOB');
+  const insert_count = ctx => section_map_get(`${ctx}/AA`).fields.get('D').max + 1;
+  check(insert_count('ifx') === 7 && insert_count('tfx') === 6, 'INSERT has 7 Input FX and 6 Track FX values');
+  check(value_format(section_map_get('tfx/DD').fields.get('D'), '5') === 'TRACK5', 'Track FX INSERT 5 is TRACK5');
 }
 
 const raw = files_load();
