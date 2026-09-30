@@ -189,7 +189,7 @@ if (fs.existsSync(out_file)) {
 }
 
 await page.$$eval('.list-item', items => items.find(i => i.textContent.includes('System')).click());
-check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'INPUT,MIXER INPUT,ROUTING INPUT,EQ MIC,EQ INST1,EQ INST2,OUTPUT,MASTER FX,MIXER OUTPUT,ROUTING OUTPUT,EQ MAIN,EQ SUB1,EQ SUB2,USB,MIDI', 'system panels are grouped by input and output');
+check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'INPUT,MIXER INPUT,ROUTING INPUT,EQ MIC,EQ INST1,EQ INST2,OUTPUT,MASTER FX,MIXER OUTPUT,ROUTING OUTPUT,EQ MAIN,EQ SUB1,EQ SUB2,CTL1,CTL2,EXP1,CTL3,CTL4,EXP2,USB,MIDI', 'system panels are grouped by input and output, with CTL/EXP above USB and MIDI');
 const card_names = title => page.evaluate(t => [...document.querySelectorAll('.system .card')].find(c => c.querySelector('h4').textContent === t).querySelectorAll('tbody td.name'), title)
   .then(() => page.$$eval('.system .card', (cards, t) => [...cards.find(c => c.querySelector('h4').textContent === t).querySelectorAll('tbody td.name')].map(td => td.textContent).join(','), title));
 check(await card_names('ROUTING OUTPUT') === 'MAIN,SUB1,SUB2,PHONES', 'ROUTING OUTPUT merges the linked MAIN, SUB1 and SUB2');
@@ -197,6 +197,18 @@ check(await card_names('MIXER OUTPUT') === 'MAIN OUT,SUB1 OUT,SUB2 OUT,LOOP OUT,
 check(await card_names('MIXER INPUT') === 'MIC1 IN,MIC1 MUTE,MIC2 IN,MIC2 MUTE,INST1-L IN,INST1-L MUTE,INST1-R IN,INST1-R MUTE,INST2 IN,INST2 MUTE', 'MIXER INPUT merges only INST2');
 check(await card_names('ROUTING INPUT') === 'MAIN,SUB1,SUB2,PHONES,PHONES RHYTHM,RHYTHM OUT,PHONES OUT SW,PHONES MONITOR,INPUT THRU', 'ROUTING INPUT lists the outputs and the rest');
 check(await card_names('MASTER FX') === 'COMP,REVERB,INSERT', 'MASTER FX names A, B and C');
+check(await card_names('CTL1') === '?,FUNC,?,?' && await card_names('EXP1') === '?,FUNC,MIN,MAX', 'CTL and EXP cards show their fields');
+const ectl_rows = await page.$$eval('.system .panels-3 .card', cards => {
+  const rows = new Map();
+  for (const c of cards) {
+    const top = Math.round(c.getBoundingClientRect().top);
+    rows.set(top, [...(rows.get(top) || []), c.querySelector('h4').textContent]);
+  }
+  return [...rows.values()].map(r => r.join(',')).join('|');
+});
+check(ectl_rows === 'CTL1,CTL2,EXP1|CTL3,CTL4,EXP2', `CTL/EXP cards sit in two rows of three: ${ectl_rows}`);
+const groups = await page.$$eval('.system details.group > summary', e => e.map(x => x.textContent).join('|'));
+check(groups === 'Panel and pedal controls (ICTL) (47)|Setup and preferences (4)', `the collapsed group holds only the ICTL sections: ${groups}`);
 const eq_heads = t => page.$$eval('.system .card', (cards, t) => [...cards.find(c => c.querySelector('h4').textContent === t).querySelectorAll('thead th')].map(th => th.textContent).filter(Boolean).join(','), t);
 check(await eq_heads('EQ MAIN') === 'MAIN' && await eq_heads('EQ MIC') === 'MIC1,MIC2', 'EQ boxes show one column when linked, two when not');
 await page.screenshot({ path: path.join(out_dir, 'system.png'), fullPage: true });

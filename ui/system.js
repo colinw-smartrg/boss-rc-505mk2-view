@@ -12,9 +12,12 @@ const eq_pairs = {
 };
 
 const group_defs = [
-  ['Panel and pedal controls', /^sys\/(ICTL|ECTL)/],
+  ['Panel and pedal controls (ICTL)', /^sys\/ICTL/],
   ['Setup and preferences', /^sys\/(SETUP|PREF|COLOR|FIXED_VALUE)$/],
 ];
+
+// One row per jack: CTL1,2/EXP1 and CTL3,4/EXP2 (p. 17).
+const ectl_order = ['CTL1', 'CTL2', 'EXP1', 'CTL3', 'CTL4', 'EXP2'].map(n => `sys/ECTL_${n}`);
 
 const strip = prefix => n => n.replace(prefix, '');
 
@@ -56,6 +59,10 @@ export function system_view(pair, rerender) {
       card('sys/MIXER', { title: 'MIXER OUTPUT', tags: [...'MNOPQRSTUV'] }),
       card('sys/ROUTING', { title: 'ROUTING OUTPUT', tags: [...'ABCDEFG'], name: strip(/^TRACK -> /) }),
       eq_pairs.output.map(e => eq_box(pair, e, links))),
+    h('h3', { class: 'group-title' }, 'CTL/EXP'),
+    h('section', { class: 'panels panels-3' },
+      ectl_order.filter(p => paths.includes(p))
+        .map(p => card(p, { title: p.replace('sys/ECTL_', '') }))),
     h('h3', { class: 'group-title' }, 'USB and MIDI'),
     h('section', { class: 'panels' }, card('sys/USB'), card('sys/MIDI')),
     h('section', { class: 'groups' },
