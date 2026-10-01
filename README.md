@@ -44,12 +44,13 @@ Roland does not document the file format. The tags are letters (`<A>`, `<B>`, ..
 
 | Status | Meaning |
 | --- | --- |
+| unit | Someone confirmed the field on the unit: the name, the encoding and the range. |
 | guide | The name comes from the Parameter Guide, at its position in the guide list. The sample data agrees with the guide range and default. |
 | inferred | The name comes from the guide or from the data, but the sample data decided which tag it is (for example, the TRACK fields from K onward are shifted by one against guide order). |
 | mcp | The name comes from rc505mk2-mcp (see `THIRD_PARTY.md`). Its letters follow guide order, and its author says that they are not verified on the unit. |
 | unknown | No source names the field. The app shows the tag and the raw number. |
 
-No field is confirmed on the unit yet. If a field has no known range, the app limits the input to the values seen in the loaded files.
+Set `unit` only for a field that someone checked on the unit. If a field has no known range, the app limits the input to the values seen in the loaded files.
 
 ## Confirm a field on the unit
 
@@ -57,7 +58,7 @@ No field is confirmed on the unit yet. If a field has no known range, the app li
 2. On the unit, change one parameter and write the memory.
 3. Copy the `DATA` folder again.
 4. Run `diff` on the two copies of the memory file. The tag that changed, other than `<count>`, holds the parameter.
-5. Update the entry in `lib/field_map/sections.js` (or `lib/field_map/fx_fixes.js` for an FX parameter). Put the evidence in `note`.
+5. Update the entry in `lib/field_map/sections.js` (or `lib/field_map/fx_fixes.js` for an FX parameter). Set `status: 'unit'` and put the evidence in `note`.
 
 ## Code
 

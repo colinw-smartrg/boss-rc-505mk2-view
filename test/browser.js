@@ -68,6 +68,7 @@ await page.waitForSelector('.list-item');
 
 const src_a = rc0_parse(fs.readFileSync(path.join(data_dir, 'MEMORY001A.RC0'), 'latin1'));
 check(await page.$$eval('.list-item', e => e.length) === 100, 'list has 99 memories and the system entry');
+check(await page.$$eval('#legend .badge', e => e.map(b => b.textContent).join()) === 'unit,guide,inferred,mcp,unknown', 'the legend lists the unit status first');
 check(await page.$eval('.name-input', e => e.value) === 'DonkeyKong', 'memory 01 shows its name');
 check((await page.$eval('.view-head .sub', e => e.textContent)).startsWith('90.0 BPM'), 'memory 01 shows 90.0 BPM');
 check((await page.$eval('.track .track-sum', e => e.textContent)).startsWith('2 meas, 5.33 s'), 'track 1 summary decodes the phrase length');
@@ -114,7 +115,7 @@ check(await page.$$eval('.assign-cell', e => {
 }), 'ASSIGN grid runs by column: 1-4 in the first column, 13-16 in the last');
 await page.$$eval('.assign-cell', e => e[5].click());
 const target_label = () => page.$eval('.assign-detail', c => [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'TARGET').querySelector('select').selectedOptions[0].textContent);
-check(await target_label() === '919 (outside the known range)', 'ASSIGN6 TARGET 919 shows as outside the list');
+check((await target_label()).startsWith('IMM ST/STOP ALL'), 'ASSIGN6 TARGET 919 decodes as IMM ST/STOP ALL');
 await page.$$eval('.assign-cell', e => e[0].click());
 check((await target_label()).startsWith('TRK1 REC/PLY'), 'ASSIGN1 TARGET decodes as TRK1 REC/PLY');
 await page.$$eval('.assign-cell', e => e[6].click());

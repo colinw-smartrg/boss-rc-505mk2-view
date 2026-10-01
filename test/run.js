@@ -158,7 +158,7 @@ function test_field_map(files) {
         check(entry, `${path}: FX tag ${tag} has no entry`);
       if (!entry || entry.min === undefined)
         continue;
-      const bad = [...values].filter(n => (n < entry.min || n > entry.max) && !entry.known_outside?.includes(n));
+      const bad = [...values].filter(n => n < entry.min || n > entry.max);
       check(!bad.length, `${path} ${tag} ${entry.name}: values ${bad.join(',')} outside ${entry.min}-${entry.max}`);
       for (const n of values)
         check(!/undefined|NaN/.test(value_format(entry, n)), `${path} ${tag}: bad format for ${n}`);
@@ -198,6 +198,13 @@ function test_widgets() {
   const target = section_map_get('mem/ASSIGN1').fields.get('H');
   const decoded = [0, 11, 22, 33, 44, 55, 57, 69, 714].map(n => value_format(target, n)).join();
   check(decoded === 'TRK1 REC/PLY,TRK2 REC/PLY,TRK3 REC/PLY,TRK4 REC/PLY,TRK5 REC/PLY,CUR.TRK REC/PLY,CUR.TRK STOP,ALL ST/STP,RHYTHM ST/STP', `ASSIGN TARGET decodes the sample values: ${decoded}`);
+  const named = (entry, ns) => ns.map(n => value_format(entry, n)).join();
+  check(named(target, [783, 789, 790, 917, 918, 919]) === 'EQ MAIN-L,PANEL MODE,MIDI CC#00,MIDI CC#127,INPUT THRU,IMM ST/STOP ALL', 'ASSIGN TARGET end of list matches the unit');
+  check(target.max === 919, 'ASSIGN TARGET has 920 values');
+  check(target.status === 'unit' && section_map_get('sys/MASTER_FX').fields.get('B').status === 'unit', 'ASSIGN TARGET and MASTER FX REVERB have the unit status');
+  check(section_map_get('mem/ASSIGN1').fields.get('C').status === 'inferred', 'ASSIGN SOURCE stays inferred');
+  const source = section_map_get('mem/ASSIGN1').fields.get('C');
+  check(named(source, [0, 1, 5, 10, 16, 17, 59]) === 'TRK1 REC/DB,TRK2 REC/DB,TRK1 PLY/STP,SYNC ST/STP,TRK1 TR (PLY),TRK2 TR (PLY),MIDI CC#21', 'ASSIGN SOURCE runs each row through TRK1-5');
   check(widget_kind(target) === 'select' && widget_kind(section_map_get('mem/ASSIGN1').fields.get('C')) === 'select', 'ASSIGN SOURCE and TARGET are drop-downs');
 }
 

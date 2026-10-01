@@ -8,6 +8,7 @@
   --accent: #e0403a;
   --on: #3fb96b;
   --changed: #e8b33a;
+  --unit: #3cc6d6;
   --guide: #3fb96b;
   --inferred: #4d8fe0;
   --mcp: #a57ae0;
@@ -91,6 +92,7 @@ tr.changed .revert { display: inline-block; }
 .bit { white-space: nowrap; font-size: 12px; }
 
 .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 5px; border-radius: 3px; border: 1px solid currentColor; cursor: help; }
+.badge-unit { color: var(--unit); }
 .badge-guide { color: var(--guide); }
 .badge-inferred { color: var(--inferred); }
 .badge-mcp { color: var(--mcp); }
