@@ -1,7 +1,8 @@
-import { h } from './dom.js';
+import { h, clear } from './dom.js';
 import { section_table, section_details } from './fields.js';
 import { fx_view } from './fx.js';
 import { assign_view } from './assign.js';
+import { copy_panel } from './copy.js';
 import { value_get, value_set, value_changed } from './state.js';
 import { value_format, field_map_get, sample_rate, rhythm_pattern_entry } from '../lib/field_map.js';
 
@@ -122,12 +123,23 @@ function head_text(pair) {
 
 export function memory_view(pair) {
   const sub = h('div', { class: 'sub' }, head_text(pair));
+  const copy_holder = h('div', {});
+  const copy_btn = h('button', {
+    class: 'copy-open',
+    onclick: () => {
+      const open = Boolean(copy_holder.firstChild);
+      clear(copy_holder, open ? null : copy_panel(pair));
+      copy_btn.classList.toggle('active', !open);
+    },
+  }, 'Copy to other memories');
   return h('div', { class: 'memory' },
     h('header', { class: 'view-head' },
       h('div', { class: 'slot-num' }, String(pair.slot).padStart(2, '0')),
-      h('div', {},
+      h('div', { class: 'head-main' },
         name_editor(pair),
-        sub)),
+        sub),
+      copy_btn),
+    copy_holder,
     h('section', { class: 'tracks' }, [1, 2, 3, 4, 5].map(t => track_card(pair, t))),
     h('section', { class: 'panels' },
       h('div', { class: 'card' }, section_table(pair, 'mem/MASTER', { on_change: () => { sub.textContent = head_text(pair); } })),

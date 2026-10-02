@@ -197,3 +197,21 @@ table.fields.compact tr.wide td.widget { grid-row: 2; grid-column: 1 / -1; }
 .panels.panels-3 { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.35fr) minmax(0, 1fr); }
 .panels-3 select.valued { font-size: 11px; }
 .panels-3 table.fields td.value { display: none; }
+
+.head-main { flex: 1; }
+.copy-open.active { border-color: var(--accent); }
+.copy-panel { margin-bottom: 12px; }
+.copy-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.copy-dest { width: 18em; }
+.copy-preview, .copy-result { margin: 4px 0 0; }
+.copy-result { color: var(--on); }
+.change-block { margin-bottom: 8px; }
+.change-head { font-weight: 600; font-size: 12px; }
+.view-head { flex-wrap: wrap; }
+
+.export-holder { position: relative; }
+.export-panel { position: absolute; right: 14px; top: 6px; z-index: 10; width: 560px; max-width: calc(100vw - 28px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.export-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 6px 0; }
+.export-label { width: 4.5em; color: var(--muted); }
+.radio { display: inline-flex; gap: 4px; align-items: center; }
+.export-summary { margin: 6px 0; }

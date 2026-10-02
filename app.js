@@ -1,7 +1,9 @@
 import { h, clear } from './ui/dom.js';
 import { text_from_bytes, text_to_bytes } from './lib/bytes.js';
-import { rc0_file_load, rc0_name_parse, pairs_build, pair_export } from './lib/rc0_file.js';
-import { state, state_load, edits_count, edits_revert } from './ui/state.js';
+import { zip_build } from './lib/zip.js';
+import { rc0_file_load, rc0_name_parse, pairs_build } from './lib/rc0_file.js';
+import { export_panel } from './ui/export.js';
+import { state, state_load, edits_count, edits_revert, exports_commit } from './ui/state.js';
 import { memory_view, memory_name } from './ui/memory.js';
 import { system_view } from './ui/system.js';
 import { status_list, status_text, value_format, field_map_get } from './lib/field_map.js';
@@ -125,21 +127,33 @@ function list_render() {
   }));
 }
 
+const changes_shown = 20;
+
+// One block per memory, with its first edits; a copy to many memories
+// makes thousands of edits, which a flat list cannot show.
 function changes_render() {
   const n = edits_count();
-  el.export_btn.disabled = !n;
+  el.export_btn.disabled = !state.pairs.length;
   el.revert_all.disabled = !n;
-  el.export_btn.textContent = n ? `Export ${state.edits.size} changed file${state.edits.size > 1 ? 's' : ''}` : 'Export';
-  const rows = [];
+  el.export_btn.textContent = n ? `Export (${state.edits.size} changed)` : 'Export';
+  const blocks = [];
   for (const [id, edits] of state.edits) {
     const pair = state.pair_by_id.get(id);
+    const rows = [];
     for (const [key, value] of edits) {
+      if (rows.length === changes_shown)
+        break;
       const [path, tag] = key.split('|');
       const old = pair.current.doc.sections.find(s => s.path === path)?.fields.find(f => f.tag === tag)?.value;
-      rows.push(h('li', {}, `${id} ${path.replace(/^(mem|sys)\//, '')} ${tag}: ${old} -> ${value}`));
+      rows.push(h('li', {}, `${path.replace(/^(mem|sys)\//, '')} ${tag}: ${old} -> ${value}`));
     }
+    if (edits.size > changes_shown)
+      rows.push(h('li', { class: 'muted' }, `... and ${edits.size - changes_shown} more`));
+    blocks.push(h('div', { class: 'change-block' },
+      h('div', { class: 'change-head' }, `${id} (${edits.size})`),
+      h('ul', {}, rows)));
   }
-  clear(el.changes, rows.length ? h('ul', {}, rows) : h('p', { class: 'muted' }, 'No changes.'));
+  clear(el.changes, blocks.length ? blocks : h('p', { class: 'muted' }, 'No changes.'));
 }
 
 function view_render() {
@@ -176,8 +190,8 @@ async function dir_has_rc0(out) {
   return false;
 }
 
-function blob_download(name, text) {
-  const url = URL.createObjectURL(new Blob([text_to_bytes(text)], { type: 'application/octet-stream' }));
+function blob_download(name, bytes, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
   const a = h('a', { href: url, download: name });
   document.body.append(a);
   a.click();
@@ -185,48 +199,117 @@ function blob_download(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function export_run() {
-  let outputs;
+function zip_name(now = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  return `rc505-export-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.zip`;
+}
+
+const export_holder = h('div', { class: 'export-holder' });
+document.querySelector('.top').after(export_holder);
+
+function export_close() {
+  clear(export_holder);
+}
+
+function export_toggle() {
+  if (export_holder.firstChild) {
+    export_close();
+    return;
+  }
+  clear(export_holder, export_panel(export_write, export_close));
+}
+
+const count_text = n => n.toString(16).toUpperCase().padStart(4, '0');
+
+async function dir_has_data(out) {
+  for await (const entry of out.values())
+    if (entry.kind === 'directory' && entry.name.toUpperCase() === 'DATA')
+      return true;
+  return false;
+}
+
+async function file_exists(dir, name) {
   try {
-    outputs = [...state.edits].map(([id, edits]) => pair_export(state.pair_by_id.get(id), edits));
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Writes the files into a folder the user picks. Without `overwrite`, a
+// folder that holds RC0 files is refused, because it may be a copy of the
+// unit storage. With it, a folder that holds a DATA folder is refused: the
+// files belong inside DATA.
+async function export_folder(files, overwrite) {
+  let out;
+  try {
+    out = await window.showDirectoryPicker({ mode: 'readwrite' });
+  } catch {
+    return null;
+  }
+  const is_source = await dir_is_source(out);
+  if (!overwrite && (is_source || await dir_has_rc0(out))) {
+    message('This folder holds RC0 files. Pick another folder, or turn on "Overwrite RC0 files" in the Export panel.', 'error');
+    return null;
+  }
+  if (overwrite && await dir_has_data(out)) {
+    message('This folder holds a DATA folder. Pick the DATA folder itself, so the files land where the unit reads them.', 'error');
+    return null;
+  }
+  const written = [];
+  let replaced = 0;
+  try {
+    for (const f of files) {
+      if (await file_exists(out, f.name))
+        replaced++;
+      const handle = await out.getFileHandle(f.name, { create: true });
+      const w = await handle.createWritable();
+      await w.write(text_to_bytes(f.text));
+      await w.close();
+      written.push(f.name);
+    }
   } catch (e) {
-    message(`Export stopped: ${e.message}`, 'error');
+    message(`Export failed after ${written.length} of ${files.length} files (${written.join(', ') || 'none'}): ${e.message}`, 'error');
+    return null;
+  }
+  return { replaced, is_source };
+}
+
+async function export_write(files, format, options = {}) {
+  const fresh = files.filter(f => f.fresh);
+  const fresh_text = fresh.length ? ` New copies: ${fresh.map(f => `${f.name} (count ${count_text(f.count)})`).join(', ')}.` : '';
+  const n = `${files.length} file${files.length > 1 ? 's' : ''}`;
+  if (format === 'zip') {
+    const name = zip_name();
+    message(`Packing ${n} ...`);
+    const zip = await zip_build(files.map(f => ({ name: `ROLAND/DATA/${f.name}`, bytes: text_to_bytes(f.text) })));
+    blob_download(name, zip, 'application/zip');
+    message(`Downloaded ${name} with ${n} in ROLAND/DATA/. Unzip it at the top of the unit storage, so each file replaces the file with the same name.${fresh_text}`);
+    export_close();
     return;
   }
   if (window.showDirectoryPicker) {
-    let out;
-    try {
-      out = await window.showDirectoryPicker({ mode: 'readwrite' });
-    } catch {
+    const done = await export_folder(files, options.overwrite);
+    if (!done)
       return;
-    }
-    if (await dir_is_source(out) || await dir_has_rc0(out)) {
-      message('Pick a folder that holds no RC0 files. The export does not write into the loaded folder or a copy of it.', 'error');
-      return;
-    }
-    const written = [];
-    try {
-      for (const o of outputs) {
-        const handle = await out.getFileHandle(o.name, { create: true });
-        const w = await handle.createWritable();
-        await w.write(text_to_bytes(o.text));
-        await w.close();
-        written.push(o.name);
-      }
-    } catch (e) {
-      message(`Export failed after ${written.length} of ${outputs.length} files (${written.join(', ') || 'none'}): ${e.message}`, 'error');
-      return;
-    }
-  } else {
-    outputs.forEach(o => blob_download(o.name, o.text));
-    message(`Downloaded ${outputs.map(o => o.name).join(', ')}. The browser can rename a file if the download folder holds one with the same name; check the names before you copy them to the unit.`, 'warn');
+    const replaced = done.replaced ? ` ${done.replaced} existing file${done.replaced > 1 ? 's were' : ' was'} replaced.` : '';
+    // The loaded folder now holds the new copies; take them as current.
+    const committed = done.is_source ? exports_commit(files) : 0;
+    const commit_text = committed ? ` The new copies are now the current copies of ${committed} memor${committed > 1 ? 'ies' : 'y'}.` : '';
+    message(`Exported ${n}.${replaced}${fresh_text}${commit_text}`);
+    export_close();
+    if (committed)
+      render();
     return;
   }
-  message(`Exported ${outputs.map(o => `${o.name} (count ${o.count.toString(16).toUpperCase().padStart(4, '0')})`).join(', ')}.`);
+  files.forEach(f => blob_download(f.name, text_to_bytes(f.text), 'application/octet-stream'));
+  message(`Downloaded ${n} as separate files. The browser can rename a file if the download folder holds one with the same name; check the names before you copy them to the unit.${fresh_text}`, 'warn');
+  export_close();
 }
 
 el.open.addEventListener('click', folder_open);
-el.export_btn.addEventListener('click', export_run);
+el.export_btn.addEventListener('click', export_toggle);
 el.revert_all.addEventListener('click', () => {
   edits_revert(null);
   render();

@@ -7,6 +7,7 @@
 // change handler runs; only the browser folder dialog is not exercised.
 // The test also removes showDirectoryPicker, so export uses downloads.
 
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -184,11 +185,53 @@ await set_master('95.5');
 check((await page.$eval('.view-head .sub', e => e.textContent)).startsWith('95.5 BPM'), 'header follows a tempo edit');
 check((await page.$eval('#changes', e => e.textContent)).includes('MASTER A: 900 -> 955'), 'tempo x10 is stored');
 
-await page.click('#export');
-const out_file = path.join(out_dir, 'MEMORY001B.RC0');
-for (let i = 0; i < 50 && !fs.existsSync(out_file); i++)
+// Export opens a panel: what to export, and in which format. Without the
+// folder picker, a ZIP is one download.
+const export_with = async (scope, format, single) => {
+  if (!(await page.$('.export-panel')))
+    await page.click('#export');
+  return page.evaluate((sc, fm, si) => {
+    const panel = document.querySelector('.export-panel');
+    panel.querySelector(`input[name=export-scope][value=${sc}]`).checked = true;
+    panel.querySelector(`input[name=export-format][value=${fm}]`).checked = true;
+    if (si)
+      panel.querySelector('.export-single').value = si;
+    panel.dispatchEvent(new Event('change'));
+    return panel.querySelector('.export-summary').textContent;
+  }, scope, format, single);
+};
+check((await export_with('changed', 'zip')).startsWith('1 file, 1 with changes.'), 'the panel counts the files of Just changed');
+await page.click('.export-panel button.primary');
+const zip_of = () => fs.readdirSync(out_dir).find(n => /^rc505-export-.*\.zip$/.test(n));
+for (let i = 0; i < 50 && !zip_of(); i++)
   await new Promise(r => setTimeout(r, 100));
+const zip_file = zip_of() && path.join(out_dir, zip_of());
+check(zip_file, 'export downloads one ZIP file');
+const zip_entries = zip_file ? execFileSync('python3', ['-c', 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; print(",".join(z.namelist()))', zip_file]).toString().trim() : '';
+check(zip_entries === 'ROLAND/DATA/MEMORY001B.RC0', `the ZIP holds the changed memory in ROLAND/DATA/: ${zip_entries}`);
+if (zip_file)
+  execFileSync('python3', ['-m', 'zipfile', '-e', zip_file, out_dir]);
+check((await page.$eval('#info', e => e.textContent)).startsWith(`Downloaded ${zip_of()} with 1 file in ROLAND/DATA/.`), 'the export message names the ZIP');
+const out_file = path.join(out_dir, 'ROLAND/DATA/MEMORY001B.RC0');
 check(fs.existsSync(out_file), 'export writes the lower-count copy MEMORY001B.RC0');
+check(!(await page.$('.export-panel')), 'the panel closes after the export');
+
+fs.renameSync(zip_file, zip_file + '.changed');
+check((await export_with('all', 'zip')).startsWith('10 files, 1 with changes.'), 'All counts the complete DATA folder');
+await page.click('.export-panel button.primary');
+for (let i = 0; i < 50 && !zip_of(); i++)
+  await new Promise(r => setTimeout(r, 100));
+const all_entries = execFileSync('python3', ['-c', 'import sys, zipfile; print(len(zipfile.ZipFile(sys.argv[1]).namelist()))', path.join(out_dir, zip_of())]).toString().trim();
+check(all_entries === '10', `All exports a ZIP of the 10 files: ${all_entries}`);
+fs.renameSync(path.join(out_dir, zip_of()), path.join(out_dir, 'all.zip.done'));
+
+check(await page.evaluate(() => { document.querySelector('#export').click(); return [...document.querySelectorAll('.export-single option')].map(o => o.value).join(); }) === 'MEMORY001', 'Single file lists only changed memories');
+await export_with('single', 'files', 'MEMORY001');
+fs.rmSync(path.join(out_dir, 'MEMORY001B.RC0'), { force: true });
+await page.click('.export-panel button.primary');
+for (let i = 0; i < 50 && !fs.existsSync(path.join(out_dir, 'MEMORY001B.RC0')); i++)
+  await new Promise(r => setTimeout(r, 100));
+check(fs.existsSync(path.join(out_dir, 'MEMORY001B.RC0')), 'Single file as a separate download writes MEMORY001B.RC0');
 if (fs.existsSync(out_file)) {
   const src = fs.readFileSync(path.join(data_dir, 'MEMORY001A.RC0'));
   const out = fs.readFileSync(out_file);
@@ -202,6 +245,42 @@ if (fs.existsSync(out_file)) {
   check(src_lines.length === out_lines.length && src_lines.filter((l, i) => l !== out_lines[i]).length === 5, 'export changes exactly 5 lines (4 values, count)');
 }
 
+// Copy from memory 01 to a list of memories.
+const changes_text = () => page.$eval('#changes', e => e.textContent);
+let ch;
+await page.click('#revert-all');
+await page.click('.copy-open');
+const copy_set = async (kind, dest) => page.evaluate((k, d) => {
+  const panel = document.querySelector('.copy-panel');
+  const sel = panel.querySelector('select');
+  sel.value = k;
+  sel.dispatchEvent(new Event('change'));
+  const input = panel.querySelector('.copy-dest');
+  input.value = d;
+  input.dispatchEvent(new Event('input'));
+  return panel.querySelector('.copy-preview').textContent;
+}, kind, dest);
+let preview = await copy_set('assign', '2,7,10,50');
+check(preview.includes('To 3 memories: 2, 7, 10.') && preview.includes('skipped: 50'), `copy preview: ${preview}`);
+preview = await copy_set('assign', '2,x');
+check(preview.includes('"x" is not a number') && await page.$eval('.copy-panel button.primary', b => b.disabled), 'a bad destination list shows the error and disables Copy');
+await copy_set('assign', '2,7,10,50');
+await page.click('.copy-panel button.primary');
+await page.waitForFunction(() => document.querySelector('.copy-result').textContent.startsWith('Copied'));
+ch = await changes_text();
+check(ch.includes('MEMORY002 (') && ch.includes('MEMORY007 (') && ch.includes('MEMORY010 (') && ch.includes('ASSIGN1 C: 0 -> 59'), 'Assign copy edits memories 2, 7 and 10');
+check((await page.$eval('.copy-result', e => e.textContent)).startsWith('Copied Assign of memory 1, as it was at the time of the copy, to 3 memories: '), 'the copy reports its result');
+await copy_set('memory', '2');
+await page.click('.copy-panel button.primary');
+await page.waitForFunction(() => document.querySelector('.copy-result').textContent.startsWith('Copied Whole'));
+check(await page.$$eval('.list-item', e => e.find(i => i.textContent.startsWith('02')).querySelector('.list-name').textContent) === 'Gothassz', 'a whole-memory copy keeps the destination name');
+await page.click('#revert-all');
+check((await changes_text()) === 'No changes.', 'Revert all undoes the copy');
+check((await export_with('changed', 'zip')).includes('There are no changes to export.') && await page.$eval('.export-panel button.primary', b => b.disabled), 'with no changes, Just changed exports nothing');
+check((await export_with('single', 'zip')).includes('has no changes to export'), 'with no changes, Single file has nothing to export');
+check((await export_with('all', 'zip')).startsWith('10 files, 0 with changes.'), 'with no changes, All still exports the complete folder');
+await page.screenshot({ path: path.join(out_dir, 'export.png') });
+await page.click('#export');
 await page.$$eval('.list-item', items => items.find(i => i.textContent.includes('System')).click());
 check((await page.$$eval('.system .card h4', e => e.map(x => x.textContent))).join() === 'INPUT,MIXER INPUT,ROUTING INPUT,EQ MIC,EQ INST1,EQ INST2,OUTPUT,MASTER FX,MIXER OUTPUT,ROUTING OUTPUT,EQ MAIN,EQ SUB1,EQ SUB2,CTL1,CTL2,EXP1,CTL3,CTL4,EXP2,USB,MIDI', 'system panels are grouped by input and output, with CTL/EXP above USB and MIDI');
 const card_names = title => page.evaluate(t => [...document.querySelectorAll('.system .card')].find(c => c.querySelector('h4').textContent === t).querySelectorAll('tbody td.name'), title)
@@ -229,13 +308,13 @@ await page.screenshot({ path: path.join(out_dir, 'system.png'), fullPage: true }
 
 // Linked edits go to both sides: separate EQ sections, fields in one
 // section, and bits in one field. A revert restores both.
-const changes_text = () => page.$eval('#changes', e => e.textContent);
+
 const card_eval = (title, fn, arg) => page.$$eval('.system .card', (cards, [t, src, a]) => {
   const c = cards.find(x => x.querySelector('h4').textContent === t);
   return new Function('c', 'a', src)(c, a);
 }, [title, fn, arg]);
 await card_eval('EQ MAIN', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SW'); t.querySelector('button.toggle').click();`);
-let ch = await changes_text();
+ch = await changes_text();
 check(ch.includes('EQ_MAINOUTL A: 0 -> 1') && ch.includes('EQ_MAINOUTR A: 0 -> 1'), 'linked EQ MAIN SW edit sets L and R');
 await card_eval('EQ MAIN', `const t = [...c.querySelectorAll('tbody tr')].find(tr => tr.querySelector('td.name').textContent === 'SW'); t.querySelector('button.revert').click();`);
 ch = await changes_text();
@@ -258,6 +337,92 @@ await page.$$eval('.system .card', cards => {
 });
 check(await card_names('ROUTING OUTPUT') === 'MAIN-L,MAIN-R,SUB1,SUB2,PHONES', 'STEREO LINK MAIN OFF shows MAIN-L and MAIN-R again');
 check(await eq_heads('EQ MAIN') === 'MAIN-L,MAIN-R', 'EQ MAIN shows L and R after the link is off');
+
+// A stand-in folder picker: a DATA folder in memory that holds the
+// fixture files, and a ROLAND folder around it. It records each write.
+const page2 = await browser.newPage();
+page2.on('pageerror', e => errors.push(e.message));
+await page2.evaluateOnNewDocument(names => {
+  const file_handle = (dir, name) => ({
+    kind: 'file', name,
+    getFile: async () => new File([dir.files.get(name)], name),
+    createWritable: async () => {
+      const parts = [];
+      return { write: async b => parts.push(b), close: async () => { dir.files.set(name, new Blob(parts)); window.__written.push(name); } };
+    },
+  });
+  const make_dir = (name, files, subdirs = []) => {
+    const dir = {
+      kind: 'directory', name, files, subdirs,
+      isSameEntry: async other => other === dir,
+      getFileHandle: async (n, opts) => {
+        if (!dir.files.has(n) && !opts?.create)
+          throw new DOMException('not found', 'NotFoundError');
+        if (!dir.files.has(n))
+          dir.files.set(n, new Blob([]));
+        return file_handle(dir, n);
+      },
+      values: async function* () {
+        for (const d of dir.subdirs)
+          yield d;
+        for (const n of dir.files.keys())
+          yield file_handle(dir, n);
+      },
+    };
+    return dir;
+  };
+  window.__written = [];
+  window.__ready = (async () => {
+    const files = new Map();
+    for (const n of names)
+      files.set(n, await (await fetch(`/test/fixtures/DATA/${n}`)).blob());
+    window.__data = make_dir('DATA', files);
+    window.__roland = make_dir('ROLAND', new Map(), [window.__data]);
+  })();
+  window.__pick = 'data';
+  window.showDirectoryPicker = async () => { await window.__ready; return window.__pick === 'roland' ? window.__roland : window.__data; };
+}, fs.readdirSync(data_dir));
+await page2.setViewport({ width: 1600, height: 1000 });
+await page2.goto(url);
+await page2.click('#open');
+await page2.waitForSelector('.list-item');
+check(await page2.$$eval('.list-item', e => e.length) === 5, 'the folder picker loads the fixture');
+await page2.evaluate(() => {
+  const row = [...document.querySelectorAll('.track:first-child table.fields tr')].find(tr => tr.querySelector('td.name').firstChild.textContent === 'PLAY LEVEL');
+  const input = row.querySelector('input');
+  input.value = '150';
+  input.dispatchEvent(new Event('change'));
+});
+const export2 = async (overwrite, pick) => {
+  await page2.evaluate(p => { window.__pick = p; }, pick);
+  if (!(await page2.$('.export-panel')))
+    await page2.click('#export');
+  await page2.evaluate(ow => {
+    const panel = document.querySelector('.export-panel');
+    panel.querySelector('input[name=export-scope][value=changed]').checked = true;
+    panel.querySelector('input[name=export-format][value=files]').checked = true;
+    panel.dispatchEvent(new Event('change'));
+    const box = panel.querySelector('.export-overwrite');
+    box.checked = ow;
+    panel.dispatchEvent(new Event('change'));
+  }, overwrite);
+  const shown = await page2.$eval('.export-overwrite', b => !b.closest('.export-row').hidden);
+  await page2.click('.export-panel button.primary');
+  await page2.waitForFunction(() => !document.querySelector('#info').textContent.startsWith('Loaded'));
+  const info = await page2.$eval('#info', e => e.textContent);
+  await page2.evaluate(() => { document.querySelector('#info').textContent = 'Loaded'; });
+  return { shown, info, written: await page2.evaluate(() => window.__written.join()) };
+};
+let r = await export2(false, 'data');
+check(r.shown && r.info.startsWith('This folder holds RC0 files.') && r.written === '', 'without overwrite, the loaded folder is refused');
+r = await export2(true, 'roland');
+check(r.info.startsWith('This folder holds a DATA folder.') && r.written === '', 'with overwrite, a folder around DATA is refused');
+r = await export2(true, 'data');
+check(r.written === 'MEMORY001B.RC0' && r.info.includes('1 existing file was replaced') && r.info.includes('now the current copies of 1 memory'), `with overwrite, the loaded folder takes the new copy: ${r.info}`);
+check(await page2.$$eval('.list-item', e => e.find(i => i.textContent.startsWith('01')).querySelector('.list-copy').textContent) === 'B 000E', 'memory 01 now shows its new copy B with count 000E');
+check(await page2.$eval('#changes', e => e.textContent) === 'No changes.', 'the committed memory has no edits left');
+check(await page2.evaluate(async () => (await window.__data.files.get('MEMORY001B.RC0').text()).includes('<count>000E</count>')), 'the written file holds count 000E');
+await page2.close();
 
 check(!errors.length, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
 await browser.close();

@@ -29,14 +29,34 @@ Each file ends with `<count>XXXX</count>`, a 4-digit hex number. The unit loads 
 ## Edit and export
 
 1. Change fields in the app. A changed field has a yellow highlight, and the **Changes** panel lists each change with the old and the new value.
-2. Click **Export**. For each changed memory, the app takes the current copy, applies the changes, and sets the count to the higher count + 1. It writes the file under the name of the other copy (for example `MEMORY001B.RC0` if A is current).
-3. In Chrome and Edge, the app asks for an output folder. It refuses the loaded folder. In other browsers, the files download.
+2. Click **Export**. A panel asks what to export and how:
+   - **Just changed**: the new copy of each changed memory. For each one, the app takes the current copy, applies the changes, and sets the count to the higher count + 1. It writes the file under the name of the other copy (for example `MEMORY001B.RC0` if A is current).
+   - **All (complete DATA folder)**: both copies of every loaded memory and of the system, with the new copy of each changed memory in place of its older copy. `RHYTHM.RC0` is not loaded, so it is not included.
+   - **Single file**: the new copy of one changed memory.
+   - **One ZIP file** or **separate files**. The ZIP holds the files in `ROLAND/DATA/`.
+3. For separate files, a browser with a folder picker asks for an output folder and writes the files there. Without the picker, each file is a separate download, and Chrome stops a page after about 10 downloads, so use a ZIP for more files.
+   - By default, the app refuses a folder that holds RC0 files, such as the loaded folder.
+   - With **Overwrite RC0 files in the chosen folder**, it writes into such a folder and replaces the files with the same names, for example directly into `ROLAND/DATA` on the unit. It refuses a folder that holds a `DATA` folder, so pick `DATA` itself.
+   - If the chosen folder is the loaded folder, the new copies become the current copies in the app, and their edits are cleared, so the app matches the disk.
 4. Keep a backup of the `ROLAND` folder of the unit.
-5. Copy each exported file into `ROLAND/DATA` on the unit, over the file with the same name.
+5. Copy each exported file into `ROLAND/DATA` on the unit, over the file with the same name. For a ZIP, unzip it at the top of the unit storage.
+
+Chrome and Edge offer the folder picker only on a secure page: https, or http on `localhost`. If you open the app as `http://<host>:8000` from another computer, there is no picker, so separate files become separate downloads. To get the picker, forward the port and open `http://localhost:8000`, for example with `ssh -L 8000:localhost:8000 <host>`.
 
 The app changes only the bytes of the edited values and of the count. All other bytes stay the same.
 
 If a count is FFFF, export stops with an error. The behaviour of the unit after FFFF is not known.
+
+## Copy to other memories
+
+In a memory, click **Copy to other memories**. Pick what to copy, and type the destination memories:
+- **Whole memory**: all settings, Input FX, Track FX and assigns. Each destination keeps its NAME, its TEMPO (MASTER A, B, D), and the track fields that follow its recording (TRACK J, R, S, U, V, W, X, Y). These fields describe the audio in `WAVE/NNN_T`, which the copy does not move.
+- **Assign**: ASSIGN1-16.
+- **Input FX** or **Track FX**: all 4 banks and 16 slots, with the stored values of every FX type.
+
+The destination list takes numbers and ranges, separated by commas, for example `6,9,20,33-99`. The panel shows the resolved list before you copy. It skips the source memory and memories that are not in the loaded folder.
+
+A copy takes the current values of the source, with its unsaved edits. It makes ordinary edits on each destination: they show in **Changes**, **Export** writes them, and **Revert all** undoes them. Without the folder picker, all changed memories go into one ZIP download.
 
 ## Field status
 
