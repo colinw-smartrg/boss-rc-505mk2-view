@@ -259,10 +259,20 @@ export function section_table(pair, path, opts = {}) {
     return h('p', { class: 'missing' }, `No section ${path} in ${pair.current.name}.`);
   const map = section_map_get(path);
   opts = { ...opts, links: opts.links || link_state() };
-  const row_of = f => field_row(pair, path, f, map.fields.get(f.tag), opts);
+  const entry_of = tag => opts.entries?.[tag] || map.fields.get(tag);
+  const row_of = f => field_row(pair, path, f, entry_of(f.tag), opts);
+  const rank = f => {
+    const i = opts.order ? opts.order.indexOf(f.tag) : -1;
+    return i < 0 ? Infinity : i;
+  };
+  // Display order only; the file keeps its own order. Tags not named in
+  // opts.order follow in file order.
   const fields = (opts.tags ? section.fields.filter(f => opts.tags.includes(f.tag)) : section.fields)
-    .filter(f => !field_hidden(map.fields.get(f.tag), opts));
-  const more = opts.more ? fields.filter(f => opts.more(f, map.fields.get(f.tag))) : [];
+    .filter(f => !field_hidden(entry_of(f.tag), opts))
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => rank(a.f) - rank(b.f) || a.i - b.i)
+    .map(x => x.f);
+  const more = opts.more ? fields.filter(f => opts.more(f, entry_of(f.tag))) : [];
   const main = fields.filter(f => !more.includes(f));
   const table_class = `fields${opts.compact ? ' compact' : ''}`;
   return h('div', { class: 'section' },

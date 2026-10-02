@@ -1,6 +1,6 @@
 // Usage: node test/browser.js
 // Needs puppeteer-core (npm install --no-save puppeteer-core) and Chrome.
-// Environment: RC0_DATA (the DATA folder), CHROME (the Chrome binary).
+// Environment: CHROME (the Chrome binary). The data is test/fixtures/DATA.
 //
 // The DevTools protocol cannot put files on a webkitdirectory input, so the
 // test removes that attribute and uploads the RC0 files directly. The same
@@ -15,7 +15,8 @@ import puppeteer from 'puppeteer-core';
 import { rc0_parse } from '../lib/rc0_parse.js';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const data_dir = process.env.RC0_DATA || '/sandbox/colinw/ROLAND/DATA';
+// The checks below are facts of the fixture snapshot, not of the live folder.
+const data_dir = path.join(root, 'test/fixtures/DATA');
 const chrome = process.env.CHROME || '/usr/bin/google-chrome';
 const out_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcview-'));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
@@ -67,7 +68,7 @@ await (await page.$('#picker')).uploadFile(...files);
 await page.waitForSelector('.list-item');
 
 const src_a = rc0_parse(fs.readFileSync(path.join(data_dir, 'MEMORY001A.RC0'), 'latin1'));
-check(await page.$$eval('.list-item', e => e.length) === 100, 'list has 99 memories and the system entry');
+check(await page.$$eval('.list-item', e => e.length) === 5, 'list has the system entry and the 4 fixture memories');
 check(await page.$$eval('#legend .badge', e => e.map(b => b.textContent).join()) === 'unit,guide,inferred,mcp,unknown', 'the legend lists the unit status first');
 check(await page.$eval('.name-input', e => e.value) === 'DonkeyKong', 'memory 01 shows its name');
 check((await page.$eval('.view-head .sub', e => e.textContent)).startsWith('90.0 BPM'), 'memory 01 shows 90.0 BPM');
@@ -104,6 +105,15 @@ check(await page.$$eval('.fx .fx-bank', cols => cols.every(c => c.querySelectorA
 check(!(await page.$('.fx-banks')), 'the separate setup card is gone');
 await page.evaluate(() => { document.querySelector('.view').scrollTop = document.querySelector('.fx').offsetTop - 10; });
 await page.screenshot({ path: path.join(out_dir, 'fx.png') });
+const rhythm_row = name => `[...document.querySelectorAll('.panels .card')].find(c => c.querySelector('h4')?.textContent === 'RHYTHM').querySelectorAll('tr')`;
+const rhythm_select = name => page.evaluate(`[...${rhythm_row()}].find(tr => tr.querySelector('td.name').textContent === '${name}').querySelector('select')`);
+const pattern_state = () => page.evaluate(`(() => { const s = [...${rhythm_row()}].find(tr => tr.querySelector('td.name').textContent === 'PATTERN').querySelector('select'); return s.selectedOptions[0].textContent.replace(/\u00a0+/g, ' ') + '|' + s.options.length; })()`);
+check(await pattern_state() === 'ELCTRO01 (0)|9', 'memory 01 PATTERN shows ELCTRO01 from the ELCTRO list');
+check(await page.evaluate(`[...${rhythm_row()}].map(tr => tr.querySelector('td.name').textContent).join()`) === 'GENRE,PATTERN,VARIATION,KIT,BEAT,START TRIG,STOP TRIG,INTRO REC,INTRO PLAY,ENDING,FILL,VAR.CHANGE,?', 'RHYTHM rows follow the guide order, M last');
+await page.evaluate(`(() => { const s = [...${rhythm_row()}].find(tr => tr.querySelector('td.name').textContent === 'GENRE').querySelector('select'); s.value = '10'; s.dispatchEvent(new Event('change')); })()`);
+check((await pattern_state()).endsWith('|16'), 'GENRE ROCK gives the 16 ROCK patterns');
+await page.evaluate(`[...${rhythm_row()}].find(tr => tr.querySelector('td.name').textContent === 'GENRE').querySelector('button.revert').click()`);
+check(await pattern_state() === 'ELCTRO01 (0)|9', 'a GENRE revert brings back the ELCTRO list');
 check(await page.$$eval('.assign-cell', e => e.length) === 16, 'the ASSIGN grid has 16 cells');
 check(await page.$eval('.assign-cell', e => e.textContent) === '1MIDI CC#21ON', 'ASSIGN1 shows ON and its SOURCE');
 check(await page.$$eval('.assign-cell', e => {
@@ -115,7 +125,10 @@ check(await page.$$eval('.assign-cell', e => {
 }), 'ASSIGN grid runs by column: 1-4 in the first column, 13-16 in the last');
 await page.$$eval('.assign-cell', e => e[5].click());
 const target_label = () => page.$eval('.assign-detail', c => [...c.querySelectorAll('tr')].find(tr => tr.querySelector('td.name').textContent === 'TARGET').querySelector('select').selectedOptions[0].textContent);
-check((await target_label()).startsWith('IMM ST/STOP ALL'), 'ASSIGN6 TARGET 919 decodes as IMM ST/STOP ALL');
+check((await target_label()).startsWith('ALL ST/STP'), 'ASSIGN6 TARGET 69 decodes as ALL ST/STP');
+await page.$$eval('.assign-cell', e => e[6].click());
+check((await target_label()).startsWith('MIDI CC#127'), 'ASSIGN7 TARGET 917 decodes as MIDI CC#127');
+await page.$$eval('.assign-cell', e => e[6].click());
 await page.$$eval('.assign-cell', e => e[0].click());
 check((await target_label()).startsWith('TRK1 REC/PLY'), 'ASSIGN1 TARGET decodes as TRK1 REC/PLY');
 await page.$$eval('.assign-cell', e => e[6].click());

@@ -85,7 +85,13 @@ npx --yes tsx tools/mcp_import.js /path/to/rc505mk2-mcp ../ROLAND/DATA
 npx --yes tsx tools/mcp_check.js /path/to/rc505mk2-mcp ../ROLAND/DATA
 ```
 
-If you give no `DATA` folder, `mcp_import.js` and `mcp_check.js` read `/sandbox/colinw/ROLAND/DATA`. `field_stats.js` needs the folder. The tests read `RC0_DATA`, or `/sandbox/colinw/ROLAND/DATA` if it is not set.
+If you give no `DATA` folder, `mcp_import.js` and `mcp_check.js` read `/sandbox/colinw/ROLAND/DATA`. `field_stats.js` needs the folder.
+
+The tests use two sets of data:
+- `test/fixtures/DATA`: a fixed copy of memories 01, 02, 07 and 10 and of SYSTEM1/2. The checks of exact values (names, current copies, edits, export, and the whole browser test) use it.
+- The live folder, `RC0_DATA` or `/sandbox/colinw/ROLAND/DATA`: a copy of the unit storage. It changes after each save on the unit, so it feeds only the rule checks (byte round trip, A/B counts, value ranges, genre and pattern pairs).
+
+If you replace the fixture files, update the expected values in the tests.
 
 The browser test needs Chrome and puppeteer-core:
 

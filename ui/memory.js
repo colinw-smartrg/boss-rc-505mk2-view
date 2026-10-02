@@ -3,7 +3,7 @@ import { section_table, section_details } from './fields.js';
 import { fx_view } from './fx.js';
 import { assign_view } from './assign.js';
 import { value_get, value_set, value_changed } from './state.js';
-import { value_format, field_map_get, sample_rate } from '../lib/field_map.js';
+import { value_format, field_map_get, sample_rate, rhythm_pattern_entry } from '../lib/field_map.js';
 
 const name_len = 12;
 
@@ -75,6 +75,25 @@ function track_card(pair, t) {
   return card;
 }
 
+// p. 7 order: GENRE, PATTERN, VARIATION, KIT, BEAT, START TRIG,
+// STOP TRIG, INTRO REC, INTRO PLAY, ENDING, FILL, VAR.CHANGE.
+const rhythm_order = [...'ABCEFKLHIJGD'];
+
+// The PATTERN list follows GENRE, so a GENRE edit rebuilds the card.
+function rhythm_card(pair) {
+  const card = h('div', { class: 'card' });
+  const render = () => card.replaceChildren(section_table(pair, 'mem/RHYTHM', {
+    entries: { B: rhythm_pattern_entry(value_get(pair, 'mem/RHYTHM', 'A')) },
+    order: rhythm_order,
+    on_change: tag => {
+      if (tag === 'A')
+        render();
+    },
+  }));
+  render();
+  return card;
+}
+
 const group_defs = [
   ['Panel and pedal controls', /^mem\/(ICTL|ECTL)/],
   ['Input, output and mixer', /^mem\/(INPUT|OUTPUT|ROUTING|MIXER|MASTER_FX)$/],
@@ -114,7 +133,7 @@ export function memory_view(pair) {
       h('div', { class: 'card' }, section_table(pair, 'mem/MASTER', { on_change: () => { sub.textContent = head_text(pair); } })),
       h('div', { class: 'card' }, section_table(pair, 'mem/REC')),
       h('div', { class: 'card' }, section_table(pair, 'mem/PLAY')),
-      h('div', { class: 'card' }, section_table(pair, 'mem/RHYTHM'))),
+      rhythm_card(pair)),
     fx_view(pair, 'ifx', 'Input FX'),
     fx_view(pair, 'tfx', 'Track FX'),
     assign_view(pair),

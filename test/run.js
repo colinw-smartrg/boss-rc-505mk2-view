@@ -4,10 +4,14 @@ import { text_from_bytes, text_to_bytes } from '../lib/bytes.js';
 import { rc0_parse } from '../lib/rc0_parse.js';
 import { rc0_edits_apply, rc0_count_format } from '../lib/rc0_write.js';
 import { rc0_file_load, pairs_build, pair_export } from '../lib/rc0_file.js';
-import { section_map_get, value_format, fx_type_name, widget_kind, value_label } from '../lib/field_map.js';
+import { section_map_get, value_format, fx_type_name, widget_kind, value_label, rhythm_pattern_entry } from '../lib/field_map.js';
 import { fx_params } from '../lib/field_map/fx.js';
 
+// The live folder (a copy of the unit storage) changes after each save on
+// the unit, so it feeds only the rule checks. The facts of one snapshot
+// come from the fixture copy in the repo.
 const data_dir = process.env.RC0_DATA || '/sandbox/colinw/ROLAND/DATA';
+const fixture_dir = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'fixtures/DATA');
 let failures = 0;
 let checks = 0;
 
@@ -19,11 +23,11 @@ function check(cond, message) {
   }
 }
 
-function files_load() {
-  return fs.readdirSync(data_dir)
+function files_load(dir) {
+  return fs.readdirSync(dir)
     .filter(n => /\.RC0$/i.test(n) && !/^RHYTHM/i.test(n))
     .sort()
-    .map(n => ({ name: n, bytes: new Uint8Array(fs.readFileSync(path.join(data_dir, n))) }));
+    .map(n => ({ name: n, bytes: new Uint8Array(fs.readFileSync(path.join(dir, n))) }));
 }
 
 function name_get(file) {
@@ -67,18 +71,21 @@ function test_single_edit(files) {
   }
 }
 
-function test_pairs(files) {
+function test_pair_rule(files) {
   const pairs = pairs_build(files);
   const memories = pairs.filter(p => p.kind === 'memory');
   check(memories.length === 99, `expected 99 memory pairs, got ${memories.length}`);
   for (const p of pairs)
     check(p.current.doc.count > p.next.doc.count, `${p.id}: current copy does not have the higher count`);
-  const by_id = Object.fromEntries(pairs.map(p => [p.id, p]));
+}
+
+function test_fixture_pairs(files) {
+  const by_id = Object.fromEntries(pairs_build(files).map(p => [p.id, p]));
   check(name_get(by_id.MEMORY002.current) === 'Gothassz    ', 'MEMORY002 current name');
   check(by_id.MEMORY002.current.name === 'MEMORY002B.RC0', 'MEMORY002 current is B');
   check(name_get(by_id.MEMORY007.current) === 'Memory07    ', 'MEMORY007 current name');
   check(by_id.MEMORY007.current.name === 'MEMORY007A.RC0', 'MEMORY007 current is A');
-  check(by_id.SYSTEM.current.name === 'SYSTEM1.RC0', 'SYSTEM current is 1');
+  check(by_id.SYSTEM.current.name === 'SYSTEM2.RC0', 'SYSTEM current is 2 (count 0304 against 0303)');
   return by_id;
 }
 
@@ -173,6 +180,22 @@ function test_field_map(files) {
   console.log('sections without a field map:', [...unmapped].sort().join(' '));
 }
 
+// Every stored PATTERN must be in the list of its stored GENRE.
+function test_rhythm_patterns(files) {
+  for (const file of files.filter(f => f.name.startsWith('MEMORY'))) {
+    const r = Object.fromEntries(file.doc.sections.find(s => s.path === 'mem/RHYTHM').fields.map(f => [f.tag, f.value]));
+    const entry = rhythm_pattern_entry(r.A);
+    check(entry.max !== undefined && Number(r.B) <= entry.max, `${file.name}: PATTERN ${r.B} outside genre ${r.A}`);
+  }
+  const name = (genre, n) => value_format(rhythm_pattern_entry(genre), n);
+  check(name(18, 0) === 'ELCTRO01' && name(12, 9) === 'SIDE STICK' && name(19, 4) === '4/4 TRIPLE', 'PATTERN decodes per genre');
+  const rhythm = section_map_get('mem/RHYTHM').fields;
+  const names = [...'ABCDEFGHIJKLM'].map(t => rhythm.get(t)?.name || '?').join();
+  check(names === 'GENRE,PATTERN,VARIATION,VAR.CHANGE,KIT,BEAT,FILL,INTRO REC,INTRO PLAY,ENDING,START TRIG,STOP TRIG,?', `RHYTHM field names: ${names}`);
+  check([...'DGHIJKL'].every(t => rhythm.get(t).status === 'unit'), 'RHYTHM D and G-L have the unit status');
+  check(widget_kind(rhythm_pattern_entry(0)) === 'select' && widget_kind(rhythm_pattern_entry(19)) === 'select', 'PATTERN is a drop-down');
+}
+
 function test_widgets() {
   const kind = (path, tag) => widget_kind(section_map_get(path).fields.get(tag));
   const cases = [
@@ -208,14 +231,23 @@ function test_widgets() {
   check(widget_kind(target) === 'select' && widget_kind(section_map_get('mem/ASSIGN1').fields.get('C')) === 'select', 'ASSIGN SOURCE and TARGET are drop-downs');
 }
 
-const raw = files_load();
+const load = raw => raw.map(r => rc0_file_load(r.name, text_from_bytes(r.bytes)));
+
+const raw = files_load(data_dir);
 check(raw.length === 200, `expected 200 RC0 files without RHYTHM, got ${raw.length}`);
 test_round_trip(raw);
-const files = raw.map(r => rc0_file_load(r.name, text_from_bytes(r.bytes)));
-test_single_edit(files);
-test_export(test_pairs(files));
+const files = load(raw);
+test_pair_rule(files);
 test_field_map(files);
+test_rhythm_patterns(files);
 test_widgets();
+
+const fixture_raw = files_load(fixture_dir);
+check(fixture_raw.length === 10, `expected 10 fixture files, got ${fixture_raw.length}`);
+test_round_trip(fixture_raw);
+const fixture = load(fixture_raw);
+test_single_edit(fixture);
+test_export(test_fixture_pairs(fixture));
 
 console.log(`${checks - failures}/${checks} checks passed`);
 process.exit(failures ? 1 : 0);
